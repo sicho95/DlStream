@@ -1,4 +1,4 @@
-const CACHE = 'dlstream-static-v26';
+const CACHE = 'dlstream-static-v27';
 const APP_SHELL = [
   './',
   './index.html',
