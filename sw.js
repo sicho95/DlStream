@@ -1,6 +1,6 @@
-const CACHE = 'dlstream-static-v9';
+const CACHE = 'dlstream-static-v10';
 const APP_SHELL = [
-  './','./index.html','./styles.css','./app.js','./browser-runtime-v2.js','./media-detector.js','./offline-downloader.js','./manifest.webmanifest','./icon.svg'
+  './','./index.html','./styles.css','./app.js','./browser-runtime.js','./media-detector.js','./offline-downloader.js','./manifest.webmanifest','./icon.svg'
 ];
 
 self.addEventListener('install', (event) => {
