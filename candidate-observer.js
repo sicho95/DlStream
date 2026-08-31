@@ -149,16 +149,20 @@
     const clean = String(value || 'video')
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[\\/:*?"<>|]+/g, '-')
-      .replace(/[^a-zA-Z0-9._ -]+/g, '-')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/^\.+|\.+$/g, '');
-    return (clean || 'video').slice(0, 90);
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return (clean || 'video').slice(0, 70);
   }
 
   function shellQuote(value) {
     return `'${String(value || '').replace(/'/g, `'"'"'`)}'`;
+  }
+
+  function timestampForFilename() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
   }
 
   function buildAShellCommand() {
@@ -170,8 +174,8 @@
     }
 
     const title = safeFileStem(active?.media?.title || document.title || 'video');
-    const output = `~/Documents/DlStream/${title}.mp4`;
-    return `mkdir -p ~/Documents/DlStream && ffmpeg -y -i ${shellQuote(url.href)} -map '0:v?' -map '0:a?' -c copy -movflags +faststart ${shellQuote(output)}`;
+    const output = `${title}-${timestampForFilename()}.mp4`;
+    return `cd && mkdir -p DlStream && cd DlStream && ffmpeg -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
   }
 
   function openInVlc() {
@@ -260,7 +264,7 @@
       ashell.id = 'openAShell';
       ashell.type = 'button';
       ashell.textContent = 'a-Shell';
-      ashell.title = 'Copier la commande ffmpeg puis ouvrir a-Shell';
+      ashell.title = 'Copier une commande ffmpeg simple puis ouvrir a-Shell';
       ashell.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
       ashell.addEventListener('click', () => openInAShell(ashell));
 
