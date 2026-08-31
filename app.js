@@ -1,5 +1,6 @@
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const DEFAULT_PLATFORM_URL = 'https://didvip.com/b6ig41m4d/home/didvip';
+const MAX_RECURSION_DEPTH = 4;
 
 const bootMessage = document.querySelector('#bootMessage');
 const bootError = document.querySelector('#bootError');
@@ -16,12 +17,28 @@ function normalizeUrl(value) {
     const u = new URL(raw);
     return ['http:', 'https:'].includes(u.protocol) ? u.href : null;
   } catch {
-    try {
-      return new URL(`https://${raw}`).href;
-    } catch {
-      return null;
-    }
+    try { return new URL(`https://${raw}`).href; } catch { return null; }
   }
+}
+
+function normalizeHost(value) {
+  try {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    const u = raw.includes('://') ? new URL(raw) : new URL(`https://${raw}`);
+    return u.hostname.replace(/^\*\./, '');
+  } catch { return ''; }
+}
+
+function readJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '');
+    return value ?? fallback;
+  } catch { return fallback; }
+}
+
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
 }
 
 function getStoredPlatformUrl() {
@@ -33,23 +50,100 @@ function getRequestedPlatformUrl() {
   return normalizeUrl(q) || getStoredPlatformUrl();
 }
 
-function getAllowedDomains() {
-  const raw = localStorage.getItem('dlstream.allowedDomains') || '';
-  return [...new Set(raw.split(/[\n,;\s]+/).map((v) => v.trim().toLowerCase()).filter(Boolean))];
+function getDepth() {
+  const n = Number(new URL(location.href).searchParams.get('depth') || 0);
+  return Number.isFinite(n) ? Math.max(0, Math.min(MAX_RECURSION_DEPTH, n)) : 0;
 }
 
-function domainIsAllowed(hostname, targetHostname) {
-  const host = String(hostname || '').toLowerCase();
-  const target = String(targetHostname || '').toLowerCase();
-  if (!host) return false;
+function isNestedLoad() {
+  return new URL(location.href).searchParams.get('nested') === '1';
+}
 
-  // Toujours autoriser le domaine de la plateforme actuellement configurée.
-  if (host === target || host.endsWith(`.${target}`)) return true;
+function getRootUrl() {
+  return normalizeUrl(getStoredPlatformUrl()) || DEFAULT_PLATFORM_URL;
+}
 
-  return getAllowedDomains().some((entry) => {
-    const allowed = entry.replace(/^https?:\/\//, '').split('/')[0].replace(/^\*\./, '');
-    return host === allowed || host.endsWith(`.${allowed}`);
-  });
+function getRootHost() {
+  try { return new URL(getRootUrl()).hostname.toLowerCase(); } catch { return ''; }
+}
+
+function getTrustedRoots() {
+  const roots = readJson('dlstream.trustedRoots', []);
+  return [...new Set((Array.isArray(roots) ? roots : []).map(normalizeHost).filter(Boolean))];
+}
+
+function setTrustedRoots(roots) {
+  writeJson('dlstream.trustedRoots', [...new Set(roots.map(normalizeHost).filter(Boolean))]);
+}
+
+function getDomainMap(key) {
+  const map = readJson(key, {});
+  return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
+}
+
+function getLearnedDomains(root = getRootHost()) {
+  const map = getDomainMap('dlstream.learnedDomains');
+  return [...new Set((Array.isArray(map[root]) ? map[root] : []).map(normalizeHost).filter(Boolean))];
+}
+
+function setLearnedDomains(domains, root = getRootHost()) {
+  const map = getDomainMap('dlstream.learnedDomains');
+  map[root] = [...new Set(domains.map(normalizeHost).filter(Boolean))].slice(0, 128);
+  writeJson('dlstream.learnedDomains', map);
+}
+
+function getIgnoredDomains(root = getRootHost()) {
+  const map = getDomainMap('dlstream.ignoredDomains');
+  return [...new Set((Array.isArray(map[root]) ? map[root] : []).map(normalizeHost).filter(Boolean))];
+}
+
+function setIgnoredDomains(domains, root = getRootHost()) {
+  const map = getDomainMap('dlstream.ignoredDomains');
+  map[root] = [...new Set(domains.map(normalizeHost).filter(Boolean))].slice(0, 128);
+  writeJson('dlstream.ignoredDomains', map);
+}
+
+function hostMatches(host, root) {
+  return host === root || host.endsWith(`.${root}`);
+}
+
+function rootIsTrusted(root = getRootHost()) {
+  return getTrustedRoots().some((trusted) => hostMatches(root, trusted));
+}
+
+function domainIsAllowed(hostname) {
+  const host = normalizeHost(hostname);
+  const root = getRootHost();
+  if (!host || !rootIsTrusted(root)) return false;
+  if (hostMatches(host, root)) return true;
+  if (getIgnoredDomains(root).includes(host)) return false;
+  return getLearnedDomains(root).includes(host);
+}
+
+function learnHosts(hosts) {
+  const root = getRootHost();
+  if (!rootIsTrusted(root)) return;
+  const ignored = new Set(getIgnoredDomains(root));
+  const learned = new Set(getLearnedDomains(root));
+  for (const value of hosts) {
+    const host = normalizeHost(value);
+    if (!host || hostMatches(host, root) || ignored.has(host)) continue;
+    learned.add(host);
+  }
+  setLearnedDomains([...learned], root);
+}
+
+function discoverSourceHosts(html, baseUrl) {
+  if (!rootIsTrusted()) return [];
+  const hosts = new Set();
+  const attrRe = /\b(?:src|href|poster|data-src|data-url|data-video-url|data-file-url)\s*=\s*(["'])(.*?)\1/gi;
+  for (const match of String(html || '').matchAll(attrRe)) {
+    try {
+      const u = new URL(match[2], baseUrl);
+      if (['http:', 'https:'].includes(u.protocol)) hosts.add(u.hostname.toLowerCase());
+    } catch (_) {}
+  }
+  return [...hosts];
 }
 
 function buildProxyUrl(targetUrl) {
@@ -58,9 +152,18 @@ function buildProxyUrl(targetUrl) {
   return u.href;
 }
 
-function buildAppUrl(targetUrl, appEntry) {
-  const u = new URL(appEntry);
+function appEntryUrl() {
+  const u = new URL('./', location.href);
+  u.search = '';
+  u.hash = '';
+  return u;
+}
+
+function buildAppUrl(targetUrl, { nested = false, depth = 0 } = {}) {
+  const u = appEntryUrl();
   u.searchParams.set('url', targetUrl);
+  if (nested) u.searchParams.set('nested', '1');
+  if (depth) u.searchParams.set('depth', String(depth));
   return u.href;
 }
 
@@ -68,48 +171,49 @@ function escapeInlineJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-function rewriteAllowedIframes(html, target, appEntry) {
+function rewriteAllowedIframes(html, targetUrl, depth) {
+  if (!rootIsTrusted() || depth >= MAX_RECURSION_DEPTH) return String(html);
   return String(html).replace(
     /<iframe\b([^>]*?)\bsrc\s*=\s*(["'])(.*?)\2([^>]*)>/gi,
     (full, before, quote, rawSrc, after) => {
       try {
-        const frameUrl = new URL(rawSrc, target.href);
-        if (!['http:', 'https:'].includes(frameUrl.protocol)) return full;
-        if (!domainIsAllowed(frameUrl.hostname, target.hostname)) return full;
-        const nested = buildAppUrl(frameUrl.href, appEntry);
+        const frameUrl = new URL(rawSrc, targetUrl);
+        if (!domainIsAllowed(frameUrl.hostname)) return full;
+        const nested = buildAppUrl(frameUrl.href, { nested: true, depth: depth + 1 });
         return `<iframe${before}src=${quote}${nested.replace(/&/g, '&amp;')}${quote}${after}>`;
-      } catch {
-        return full;
-      }
+      } catch { return full; }
     },
   );
 }
 
 function transformHtml(html, targetUrl) {
   const target = new URL(targetUrl);
-  const appEntry = new URL('./', location.href);
-  appEntry.search = '';
-  appEntry.hash = '';
+  const depth = getDepth();
+  const runtimeUrl = new URL('./browser-runtime.js', appEntryUrl()).href;
+  const detectorUrl = new URL('./media-detector.js', appEntryUrl()).href;
+  const downloaderUrl = new URL('./offline-downloader.js', appEntryUrl()).href;
+  const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
 
-  const runtimeUrl = new URL('./browser-runtime.js', appEntry).href;
-  const detectorUrl = new URL('./media-detector.js', appEntry).href;
-  const manifestUrl = new URL('./manifest.webmanifest', appEntry).href;
+  if (rootIsTrusted()) learnHosts(discoverSourceHosts(html, target.href));
 
   let out = String(html || '');
-
-  // Supprimer uniquement les politiques HTML qui empêcheraient le runtime local.
   out = out.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
   out = out.replace(/<base\b[^>]*>/gi, '');
-
-  // Inspecter récursivement uniquement les iframes appartenant aux domaines explicitement autorisés.
-  out = rewriteAllowedIframes(out, target, appEntry.href);
+  out = rewriteAllowedIframes(out, target.href, depth);
 
   const config = {
     targetUrl: target.href,
-    upstreamOrigin: target.origin,
-    appEntry: appEntry.href,
+    rootUrl: getRootUrl(),
+    rootHost: getRootHost(),
+    rootTrusted: rootIsTrusted(),
+    isNested: isNestedLoad(),
+    depth,
+    maxDepth: MAX_RECURSION_DEPTH,
+    appEntry: appEntryUrl().href,
     proxyBase: PROXY_BASE,
-    allowedDomains: getAllowedDomains(),
+    trustedRoots: getTrustedRoots(),
+    learnedDomains: getLearnedDomains(),
+    ignoredDomains: getIgnoredDomains(),
   };
 
   const injection = `\n<base href="${target.href.replace(/"/g, '&quot;')}">\n` +
@@ -117,16 +221,12 @@ function transformHtml(html, targetUrl) {
     `<link rel="manifest" href="${manifestUrl}">\n` +
     `<script>window.__DLSTREAM__=${escapeInlineJson(config)};<\/script>\n` +
     `<script src="${runtimeUrl}"><\/script>\n` +
+    `<script src="${downloaderUrl}"><\/script>\n` +
     `<script src="${detectorUrl}"><\/script>\n`;
 
-  if (/<head\b[^>]*>/i.test(out)) {
-    out = out.replace(/<head\b([^>]*)>/i, `<head$1>${injection}`);
-  } else if (/<html\b[^>]*>/i.test(out)) {
-    out = out.replace(/<html\b([^>]*)>/i, `<html$1><head>${injection}</head>`);
-  } else {
-    out = `<!doctype html><html><head>${injection}</head><body>${out}</body></html>`;
-  }
-
+  if (/<head\b[^>]*>/i.test(out)) out = out.replace(/<head\b([^>]*)>/i, `<head$1>${injection}`);
+  else if (/<html\b[^>]*>/i.test(out)) out = out.replace(/<html\b([^>]*)>/i, `<html$1><head>${injection}</head>`);
+  else out = `<!doctype html><html><head>${injection}</head><body>${out}</body></html>`;
   return out;
 }
 
@@ -139,33 +239,19 @@ function showError(message, targetUrl) {
 
 async function loadPlatform(targetUrl) {
   const normalized = normalizeUrl(targetUrl);
-  if (!normalized) {
-    showError('URL de plateforme invalide.', targetUrl || '');
-    return;
-  }
+  if (!normalized) return showError('URL de plateforme invalide.', targetUrl || '');
 
-  localStorage.setItem('dlstream.platformUrl', normalized);
-  platformUrlInput.value = normalized;
+  if (!isNestedLoad()) localStorage.setItem('dlstream.platformUrl', normalized);
+  platformUrlInput.value = isNestedLoad() ? getRootUrl() : normalized;
   bootError.hidden = true;
   bootMessage.textContent = 'Chargement via le proxy Sicho95…';
 
   try {
-    const response = await fetch(buildProxyUrl(normalized), {
-      method: 'GET',
-      cache: 'no-store',
-      redirect: 'follow',
-    });
-
+    const response = await fetch(buildProxyUrl(normalized), { method: 'GET', cache: 'no-store', redirect: 'follow' });
     if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
-
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('text/html')) {
-      throw new Error(`La cible n’a pas renvoyé une page HTML (${contentType || 'type inconnu'}).`);
-    }
-
-    const html = await response.text();
-    const transformed = transformHtml(html, normalized);
-
+    if (!contentType.includes('text/html')) throw new Error(`La cible n’a pas renvoyé une page HTML (${contentType || 'type inconnu'}).`);
+    const transformed = transformHtml(await response.text(), normalized);
     document.open();
     document.write(transformed);
     document.close();
@@ -181,13 +267,22 @@ configForm.addEventListener('submit', (event) => {
   const u = normalizeUrl(platformUrlInput.value);
   if (!u) return;
   localStorage.setItem('dlstream.platformUrl', u);
-  const app = new URL('./', location.href);
-  app.searchParams.set('url', u);
-  location.assign(app.href);
+  location.assign(buildAppUrl(u));
 });
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
-}
+window.DlStreamConfig = Object.freeze({
+  getTrustedRoots,
+  setTrustedRoots,
+  getLearnedDomains,
+  setLearnedDomains,
+  getIgnoredDomains,
+  setIgnoredDomains,
+  getRootHost,
+  rootIsTrusted,
+  domainIsAllowed,
+  learnHosts,
+  buildAppUrl,
+});
 
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 loadPlatform(getRequestedPlatformUrl());
