@@ -139,10 +139,10 @@ function discoverSourceHosts(html, baseUrl) {
   const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
   const selectors = [
     'iframe[src]','script[src]','img[src]','video[src]','audio[src]','source[src]','track[src]','link[href]',
-    '[poster]','[data-src]','[data-url]','[data-video-url]','[data-file-url]','[data-manifest]','[data-manifest-url]'
+    '[poster]','[data-src]','[data-url]','[data-video-url]','[data-file-url]','[data-manifest]','[data-manifest-url]','[data-hls]','[data-dash]'
   ];
   doc.querySelectorAll(selectors.join(',')).forEach((node) => {
-    const attrs = ['src','href','poster','data-src','data-url','data-video-url','data-file-url','data-manifest','data-manifest-url'];
+    const attrs = ['src','href','poster','data-src','data-url','data-video-url','data-file-url','data-manifest','data-manifest-url','data-hls','data-dash'];
     for (const attr of attrs) {
       const raw = node.getAttribute(attr);
       if (!raw) continue;
@@ -198,7 +198,7 @@ function rewriteAllowedIframes(html, targetUrl, depth) {
 function transformHtml(html, targetUrl) {
   const target = new URL(targetUrl);
   const depth = getDepth();
-  const runtimeUrl = new URL('./browser-runtime-v2.js', appEntryUrl()).href;
+  const runtimeUrl = new URL('./browser-runtime.js', appEntryUrl()).href;
   const detectorUrl = new URL('./media-detector.js', appEntryUrl()).href;
   const downloaderUrl = new URL('./offline-downloader.js', appEntryUrl()).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
