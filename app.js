@@ -136,13 +136,22 @@ function learnHosts(hosts) {
 function discoverSourceHosts(html, baseUrl) {
   if (!rootIsTrusted()) return [];
   const hosts = new Set();
-  const attrRe = /\b(?:src|href|poster|data-src|data-url|data-video-url|data-file-url)\s*=\s*(["'])(.*?)\1/gi;
-  for (const match of String(html || '').matchAll(attrRe)) {
-    try {
-      const u = new URL(match[2], baseUrl);
-      if (['http:', 'https:'].includes(u.protocol)) hosts.add(u.hostname.toLowerCase());
-    } catch (_) {}
-  }
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const selectors = [
+    'iframe[src]','script[src]','img[src]','video[src]','audio[src]','source[src]','track[src]','link[href]',
+    '[poster]','[data-src]','[data-url]','[data-video-url]','[data-file-url]','[data-manifest]','[data-manifest-url]'
+  ];
+  doc.querySelectorAll(selectors.join(',')).forEach((node) => {
+    const attrs = ['src','href','poster','data-src','data-url','data-video-url','data-file-url','data-manifest','data-manifest-url'];
+    for (const attr of attrs) {
+      const raw = node.getAttribute(attr);
+      if (!raw) continue;
+      try {
+        const u = new URL(raw, baseUrl);
+        if (['http:','https:'].includes(u.protocol)) hosts.add(u.hostname.toLowerCase());
+      } catch (_) {}
+    }
+  });
   return [...hosts];
 }
 
