@@ -2,7 +2,7 @@
   const cfg = window.__DLSTREAM__;
   if (!cfg || cfg.isNested) return;
 
-  const STATE_KEY = 'dlstream.folderMode.v1';
+  const STATE_KEY = 'dlstream.folderMode.v2';
   const OPFS_DIR = 'dlstream-folder-mode';
   const DEFAULT_DELAY_MS = 650;
 
@@ -91,9 +91,7 @@
     let hasMediaSegments = false;
     let hasMasterVariants = false;
 
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-
+    for (const line of lines) {
       if (line.startsWith('#EXT-X-KEY:')) {
         const attrs = parseAttrs(line.slice(line.indexOf(':') + 1));
         if (String(attrs.METHOD || '').toUpperCase() !== 'NONE') {
@@ -132,7 +130,7 @@
     }
 
     if (!hasMediaSegments && hasMasterVariants) {
-      throw new Error('Manifeste maître détecté. Il faut d’abord télécharger/importer la playlist média qui contient les segments .ts/.m4s.');
+      throw new Error('Manifeste maître détecté. Il faut importer la playlist média qui contient les segments .ts/.m4s.');
     }
     if (!refs.length) throw new Error('Aucun segment média trouvé dans le manifeste.');
 
@@ -155,8 +153,9 @@
 
   function openManifest() {
     const url = activeManifestUrl();
-    if (!url) throw new Error('Aucun manifeste HLS actif à ouvrir.');
+    if (!url) throw new Error('Aucun manifeste HLS actif à lire.');
     window.open(url.href, '_blank', 'noopener');
+    saveState({ message: 'Le manifeste a été ouvert comme flux. Sur iOS il peut lancer directement la lecture vidéo ; cette action ne garantit pas le téléchargement du fichier .m3u8.' });
   }
 
   async function importManifestFile(file) {
@@ -178,29 +177,50 @@
       launchIndex: 0,
       importIndex: 0,
       percent: 0,
+      testOutcome: '',
+      testUrl: parsed.urls[0] || '',
+      folderExpected: parsed.refs.length,
+      folderPresent: 0,
+      folderMissing: [],
+      folderExtra: 0,
+      folderDuplicates: [],
       message: online
-        ? `${parsed.refs.length} segments prêts. Le téléchargement multiple est expérimental sur iOS.`
-        : `${parsed.refs.length} segments trouvés. L’URL en ligne du manifeste est nécessaire pour lancer leur téléchargement.`,
+        ? `${parsed.refs.length} segments trouvés. Teste d’abord un segment de façon visible.`
+        : `${parsed.refs.length} segments trouvés, mais l’URL en ligne du manifeste manque pour reconstruire les URL des segments.`,
     });
   }
 
-  function ensureDownloadSink() {
-    let frame = document.querySelector('iframe[data-dlstream-download-sink]');
-    if (frame) return frame;
-    frame = document.createElement('iframe');
-    frame.name = `dlstream-download-${Date.now()}`;
-    frame.dataset.dlstreamDownloadSink = '1';
-    frame.setAttribute('aria-hidden', 'true');
-    frame.style.cssText = 'position:fixed;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none';
-    document.body.appendChild(frame);
-    return frame;
+  function testFirstSegment() {
+    const state = readState();
+    if (!state?.urls?.length) throw new Error('Importe d’abord le manifeste .m3u8 détecté.');
+    const url = state.urls[0];
+    const popup = window.open(url, '_blank', 'noopener');
+    saveState({
+      state: 'segment-test-opened',
+      testUrl: url,
+      testFilename: fileNameFromRef(state.refs?.[0] || url),
+      testOutcome: '',
+      message: popup
+        ? 'Premier segment ouvert dans une fenêtre visible. Vérifie maintenant ce qu’iOS a réellement fait puis indique le résultat dans DlStream.'
+        : 'iOS a bloqué l’ouverture du segment. Le téléchargement automatique par navigation n’est pas exploitable ici.',
+    });
+  }
+
+  function setTestOutcome(outcome) {
+    const allowed = new Set(['downloaded', 'opened', 'nothing']);
+    if (!allowed.has(outcome)) throw new Error('Résultat de test invalide.');
+    const messages = {
+      downloaded: 'Test confirmé : le segment a réellement été enregistré dans Fichiers. Le lancement en série peut être tenté.',
+      opened: 'Test confirmé : iOS ouvre/lit le segment au lieu de le télécharger. Le lancement automatique de tous les segments est désactivé pour cet hébergeur.',
+      nothing: 'Test confirmé : aucun fichier n’a été créé. Le lancement automatique de tous les segments est désactivé pour cet hébergeur.',
+    };
+    return saveState({ state: 'segment-test-result', testOutcome: outcome, message: messages[outcome] });
   }
 
   function triggerOneDownload(url, filename) {
-    const sink = ensureDownloadSink();
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.target = sink.name;
+    anchor.target = '_blank';
     anchor.rel = 'noopener';
     anchor.download = filename || '';
     anchor.style.display = 'none';
@@ -209,16 +229,12 @@
     anchor.remove();
   }
 
-  function testFirstSegment() {
-    const state = readState();
-    if (!state?.urls?.length) throw new Error('Importe d’abord le manifeste .m3u8 détecté.');
-    triggerOneDownload(state.urls[0], fileNameFromRef(state.refs?.[0] || state.urls[0]));
-    saveState({ message: 'Premier segment lancé. Vérifie qu’il apparaît bien dans le dossier de téléchargements iOS avant de lancer toute la file.' });
-  }
-
   async function launchAllSegments(delayMs = DEFAULT_DELAY_MS) {
     const state = readState();
     if (!state?.refs?.length) throw new Error('Importe d’abord le manifeste .m3u8.');
+    if (state.testOutcome !== 'downloaded') {
+      throw new Error('Le lancement en série est désactivé tant que le test d’un segment n’a pas été confirmé comme réellement téléchargé dans Fichiers.');
+    }
 
     let urls = Array.isArray(state.urls) ? state.urls : [];
     if (urls.length !== state.refs.length) {
@@ -237,12 +253,12 @@
       total,
       percent: 0,
       error: '',
-      message: 'Demandes de téléchargement en cours. iOS peut demander l’autorisation des téléchargements multiples.',
+      message: 'Demandes de téléchargement en cours. Le pourcentage indique uniquement les demandes envoyées à iOS, pas les fichiers effectivement écrits.',
     });
 
     for (let i = 0; i < total; i += 1) {
       if (launchCancelled) {
-        saveState({ state: 'launch-paused', message: `File arrêtée après ${i}/${total} demandes.` });
+        saveState({ state: 'launch-paused', message: `File arrêtée après ${i}/${total} demandes lancées.` });
         return;
       }
 
@@ -252,7 +268,7 @@
         state: 'launching',
         launchIndex: index,
         percent: Math.round((index / total) * 1000) / 10,
-        message: `${index}/${total} demandes de téléchargement lancées. Cela ne confirme pas encore l’écriture de chaque fichier par iOS.`,
+        message: `${index}/${total} demandes lancées. Aucune confirmation d’écriture n’est disponible depuis la PWA.`,
       });
       await delay(Math.max(250, Number(delayMs) || DEFAULT_DELAY_MS));
     }
@@ -261,7 +277,7 @@
       state: 'downloads-launched',
       launchIndex: total,
       percent: 100,
-      message: 'Toutes les demandes ont été lancées. Vérifie le dossier temporaire dans Fichiers puis sélectionne ce dossier dans DlStream.',
+      message: 'Toutes les demandes ont été lancées. Ce 100 % n’est pas une preuve de téléchargement. La vérification réelle se fait en sélectionnant le dossier.',
     });
   }
 
@@ -281,16 +297,24 @@
   function buildFileMaps(files) {
     const byRelative = new Map();
     const byName = new Map();
+    const duplicates = [];
 
     for (const file of files) {
       const relative = normalizeRelativePath(file.webkitRelativePath || file.name);
-      if (relative) byRelative.set(relative, file);
+      if (relative) {
+        if (byRelative.has(relative)) duplicates.push(relative);
+        byRelative.set(relative, file);
+      }
       const name = file.name || relative.split('/').pop() || '';
       if (!byName.has(name)) byName.set(name, []);
       byName.get(name).push(file);
     }
 
-    return { byRelative, byName };
+    for (const [name, matches] of byName.entries()) {
+      if (matches.length > 1) duplicates.push(name);
+    }
+
+    return { byRelative, byName, duplicates: [...new Set(duplicates)] };
   }
 
   function matchFile(ref, maps) {
@@ -361,19 +385,46 @@
     const maps = buildFileMaps(files);
     const ordered = [];
     const missing = [];
+    const matchedFiles = new Set();
 
     for (const ref of parsed.refs) {
       const file = matchFile(ref, maps);
-      if (file) ordered.push(file);
-      else missing.push(fileNameFromRef(ref));
+      if (file) {
+        ordered.push(file);
+        matchedFiles.add(file);
+      } else {
+        missing.push(fileNameFromRef(ref));
+      }
     }
+
+    const folderName = String(files[0]?.webkitRelativePath || '').split('/').filter(Boolean)[0] || 'dossier temporaire';
+    const extra = files.filter((file) => !matchedFiles.has(file) && !/\.m3u8(?:\.m3u8)?$/i.test(file.name || '')).length;
+
+    saveState({
+      ...state,
+      state: missing.length ? 'folder-check-failed' : 'folder-check-ok',
+      manifestName,
+      manifestText,
+      refs: parsed.refs,
+      total: parsed.refs.length,
+      folderExpected: parsed.refs.length,
+      folderPresent: ordered.length,
+      folderMissing: missing.slice(0, 200),
+      folderMissingCount: missing.length,
+      folderExtra: extra,
+      folderDuplicates: maps.duplicates.slice(0, 100),
+      tempFolderName: folderName,
+      percent: parsed.refs.length ? Math.round((ordered.length / parsed.refs.length) * 1000) / 10 : 0,
+      message: missing.length
+        ? `Dossier incomplet : ${ordered.length}/${parsed.refs.length} segments présents, ${missing.length} manquants.`
+        : `Vérification exacte : ${ordered.length}/${parsed.refs.length} segments présents. Assemblage en cours…`,
+    });
 
     if (missing.length) {
       const sample = missing.slice(0, 12).join('\n');
       throw new Error(`${missing.length} segment(s) manquant(s) sur ${parsed.refs.length}.\n\nPremiers fichiers manquants :\n${sample}`);
     }
 
-    const folderName = String(files[0]?.webkitRelativePath || '').split('/').filter(Boolean)[0] || 'dossier temporaire';
     const extension = parsed.format || 'ts';
     const outputName = safeOutputName(manifestName, extension);
     const fileKey = `assembled-${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
@@ -384,7 +435,6 @@
     let bytes = 0;
     const total = ordered.length;
     saveState({
-      ...state,
       state: 'assembling-folder',
       manifestName,
       manifestText,
@@ -477,6 +527,97 @@
     clearState();
   }
 
+  function technicalReport() {
+    const state = readState() || {};
+    const active = activeMedia || window.__DLSTREAM_ACTIVE_MEDIA__ || {};
+    const manifest = activeManifestUrl();
+    const firstUrls = Array.isArray(state.urls) ? state.urls.slice(0, 5) : [];
+    const lastUrls = Array.isArray(state.urls) ? state.urls.slice(-5) : [];
+    const appOrigin = location.origin;
+    const mediaHost = manifest?.hostname || '';
+    const mediaOrigin = manifest?.origin || '';
+    const crossOrigin = Boolean(mediaOrigin && mediaOrigin !== appOrigin);
+
+    const lines = [
+      'DlStream - Rapport technique dossier HLS',
+      `Date: ${new Date().toISOString()}`,
+      `Build: ${cfg.build || 'inconnu'}`,
+      `User-Agent: ${navigator.userAgent}`,
+      `Mode PWA standalone: ${String(Boolean(window.matchMedia?.('(display-mode: standalone)')?.matches || navigator.standalone))}`,
+      `Service Worker contrôleur: ${String(Boolean(navigator.serviceWorker?.controller))}`,
+      `OPFS disponible: ${String(Boolean(navigator.storage?.getDirectory))}`,
+      `webkitdirectory disponible: ${String('webkitdirectory' in document.createElement('input'))}`,
+      '',
+      `Page cible: ${cfg.targetUrl || ''}`,
+      `Racine: ${cfg.rootHost || ''}`,
+      `Média actif type: ${active.type || active.mediaType || ''}`,
+      `Média actif URL: ${active.url || active.manifestUrl || ''}`,
+      `Manifest en ligne: ${state.manifestUrl || manifest?.href || ''}`,
+      `Manifest importé: ${state.manifestName || ''}`,
+      `Origine DlStream: ${appOrigin}`,
+      `Origine média: ${mediaOrigin}`,
+      `Cross-origin: ${String(crossOrigin)}`,
+      `Hôte média: ${mediaHost}`,
+      '',
+      `Segments attendus: ${Number(state.total || state.folderExpected || 0)}`,
+      `Demandes lancées: ${Number(state.launchIndex || 0)}`,
+      `Résultat test segment: ${state.testOutcome || 'non renseigné'}`,
+      `URL segment test: ${state.testUrl || ''}`,
+      `Nom segment test: ${state.testFilename || ''}`,
+      '',
+      `Dossier sélectionné: ${state.tempFolderName || ''}`,
+      `Segments présents vérifiés: ${Number(state.folderPresent || 0)}`,
+      `Segments manquants: ${Number(state.folderMissingCount || state.folderMissing?.length || 0)}`,
+      `Fichiers supplémentaires: ${Number(state.folderExtra || 0)}`,
+      `Doublons détectés: ${Number(state.folderDuplicates?.length || 0)}`,
+      `Assemblage index: ${Number(state.importIndex || 0)}`,
+      `Octets assemblés: ${Number(state.bytes || 0)}`,
+      `État: ${state.state || ''}`,
+      `Message: ${state.message || ''}`,
+      `Erreur: ${state.error || ''}`,
+      '',
+      'Premières URL segments:',
+      ...firstUrls,
+      '',
+      'Dernières URL segments:',
+      ...lastUrls,
+      '',
+      'Premiers segments manquants:',
+      ...(Array.isArray(state.folderMissing) ? state.folderMissing.slice(0, 30) : []),
+      '',
+      'Diagnostic téléchargement navigateur:',
+      crossOrigin
+        ? 'L’attribut HTML download ne peut pas forcer un téléchargement cross-origin. Si le serveur renvoie le segment en lecture/inline, Safari peut l’ouvrir au lieu de l’enregistrer.'
+        : 'Le média est same-origin avec DlStream ; le comportement download dépend encore des en-têtes serveur et d’iOS.',
+    ];
+
+    return lines.join('\n');
+  }
+
+  async function copyTechnicalReport() {
+    const text = technicalReport();
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function downloadTechnicalReport() {
+    const text = technicalReport();
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `dlstream-rapport-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   document.addEventListener('dlstream-active-media', (event) => {
     activeMedia = event.detail || null;
     window.dispatchEvent(new CustomEvent('dlstream-folder-progress', { detail: readState() }));
@@ -488,11 +629,15 @@
     openManifest,
     importManifestFile,
     testFirstSegment,
+    setTestOutcome,
     launchAllSegments,
     cancelLaunch,
     concatenateFolder,
     exportResult,
     removeResult,
     clearState,
+    technicalReport,
+    copyTechnicalReport,
+    downloadTechnicalReport,
   });
 })();
