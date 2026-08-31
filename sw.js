@@ -1,4 +1,4 @@
-const CACHE = 'dlstream-static-v8';
+const CACHE = 'dlstream-static-v9';
 const APP_SHELL = [
   './','./index.html','./styles.css','./app.js','./browser-runtime-v2.js','./media-detector.js','./offline-downloader.js','./manifest.webmanifest','./icon.svg'
 ];
@@ -175,6 +175,43 @@ async function probeHls(requestUrl) {
   }
 }
 
+async function probeDirect(requestUrl) {
+  const raw = requestUrl.searchParams.get('url');
+  const allowed = allowedSet(requestUrl);
+  if (!raw) return Response.json({ feasible: false, reason: 'URL média manquante.' }, { status: 400 });
+
+  let target;
+  try { target = new URL(raw); }
+  catch { return Response.json({ feasible: false, reason: 'URL média invalide.' }, { status: 400 }); }
+
+  if (!hostAllowed(target.hostname, allowed)) {
+    return Response.json({ feasible: false, reason: 'Domaine média non autorisé.' }, { status: 403 });
+  }
+
+  try {
+    const headers = new Headers({ Range: 'bytes=0-1' });
+    const response = await fetchCors(target.href, { headers });
+    const contentType = response.headers.get('Content-Type') || '';
+    const contentRange = response.headers.get('Content-Range') || '';
+    const contentLength = response.headers.get('Content-Length') || '';
+    let size = null;
+    const total = contentRange.match(/\/(\d+)$/)?.[1];
+    if (total) size = Number(total);
+    else if (contentLength && response.status === 200) size = Number(contentLength);
+    try { await response.body?.cancel(); } catch (_) {}
+
+    return Response.json({
+      feasible: true,
+      type: 'direct',
+      reason: 'Fichier direct accessible depuis la PWA.',
+      contentType,
+      size: Number.isFinite(size) ? size : null,
+    }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    return Response.json({ feasible: false, reason: error?.message || String(error) }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
+  }
+}
+
 async function hlsDownload(requestUrl) {
   try {
     const prepared = await prepareHls(requestUrl);
@@ -241,6 +278,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin === self.location.origin && url.pathname.endsWith('/__dlstream_hls_probe__')) {
     event.respondWith(probeHls(url));
+    return;
+  }
+  if (url.origin === self.location.origin && url.pathname.endsWith('/__dlstream_direct_probe__')) {
+    event.respondWith(probeDirect(url));
     return;
   }
   if (url.origin === self.location.origin && url.pathname.endsWith('/__dlstream_hls_download__')) {
