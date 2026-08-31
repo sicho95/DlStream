@@ -1,6 +1,7 @@
 (() => {
   const SHORTCUT_NAME = 'DlStream a-Shell';
   const TITLE_KEY_PREFIX = 'dlstream.contentTitle.';
+  const DIRECT_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|mpe|m2v|m2ts|mts|ts|vob|ogv|ogg|3gp|3g2|wmv|flv|f4v|asf|divx|rm|rmvb)(?:$|[?#])/i;
   let boundRoot = null;
 
   function text(value) {
@@ -81,9 +82,7 @@
       if (value) return value;
     }
 
-    const htmlTitle = usefulTitle(document.title);
-    if (htmlTitle) return htmlTitle;
-    return '';
+    return usefulTitle(document.title);
   }
 
   function platformPage() {
@@ -113,13 +112,13 @@
     catch { return ''; }
   }
 
-  function mediaTitle() {
-    return usefulTitle(window.__DLSTREAM_ACTIVE_MEDIA__?.title || '');
+  function mediaTitle(media = window.__DLSTREAM_ACTIVE_MEDIA__) {
+    return usefulTitle(media?.title || '');
   }
 
-  function outputTitle() {
+  function outputTitle(media) {
     rememberPlatformTitle();
-    return titleFromPage() || rememberedTitle() || mediaTitle();
+    return titleFromPage() || rememberedTitle() || mediaTitle(media);
   }
 
   function safeFilename(value) {
@@ -142,8 +141,7 @@
     return `'${String(value || '').replace(/'/g, `'"'"'`)}'`;
   }
 
-  function mediaUrl() {
-    const media = window.__DLSTREAM_ACTIVE_MEDIA__;
+  function mediaUrl(media = window.__DLSTREAM_ACTIVE_MEDIA__) {
     const raw = media?.url || media?.downloadUrl || media?.manifestUrl;
     try {
       const url = new URL(String(raw || ''));
@@ -153,12 +151,37 @@
     }
   }
 
-  function buildCommand() {
-    const url = mediaUrl();
+  function mediaKind(media, url) {
+    const declared = String(media?.type || media?.mediaType || '').toLowerCase();
+    if (declared === 'direct') return 'direct';
+    if (['hls', 'dash', 'stream'].includes(declared)) return 'stream';
+    if (DIRECT_EXT_RE.test(url?.href || '')) return 'direct';
+    return 'stream';
+  }
+
+  function directExtension(media, url) {
+    const candidates = [media?.filename, decodeURIComponent(url?.pathname?.split('/').pop() || '')];
+    for (const value of candidates) {
+      const match = String(value || '').match(/\.([a-z0-9]{2,5})$/i);
+      if (match && DIRECT_EXT_RE.test(`x.${match[1]}`)) return match[1].toLowerCase();
+    }
+    return 'mp4';
+  }
+
+  function buildCommand(media = window.__DLSTREAM_ACTIVE_MEDIA__) {
+    const url = mediaUrl(media);
     if (!url) throw new Error('Aucun média actif pour a-Shell.');
 
-    const title = safeFilename(outputTitle());
-    const output = `${title || `video-${timestamp()}`}.mp4`;
+    const title = safeFilename(outputTitle(media)) || `video-${timestamp()}`;
+    const kind = mediaKind(media, url);
+
+    if (kind === 'direct') {
+      const ext = directExtension(media, url);
+      const output = `${title.replace(/\.[a-z0-9]{2,5}$/i, '')}.${ext}`;
+      return `cd ~/Documents\ncurl -L --fail --retry 2 -o ${shellQuote(output)} ${shellQuote(url.href)}`;
+    }
+
+    const output = `${title.replace(/\.[a-z0-9]{2,5}$/i, '')}.mp4`;
     return `cd ~/Documents\nffmpeg -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
   }
 
@@ -192,24 +215,23 @@
     }
   }
 
+  function launch(media = window.__DLSTREAM_ACTIVE_MEDIA__) {
+    const command = buildCommand(media);
+    copySync(command);
+    location.href = shortcutUrl();
+    return command;
+  }
+
   function simplifyUi(root) {
-    root.querySelector('#download')?.remove();
     root.querySelector('#openVlc')?.remove();
     root.querySelector('#copyMediaUrl')?.remove();
     root.querySelector('#offlineJobPanel')?.remove();
     root.querySelector('#folderModePanel')?.remove();
 
-    const launch = root.querySelector('#openAShell');
-    if (launch) {
-      launch.textContent = 'Lancer avec a-Shell';
-      launch.title = `Copier la commande puis exécuter le raccourci « ${SHORTCUT_NAME} »`;
-    }
-
+    const launchButton = root.querySelector('#openAShell');
+    if (launchButton) launchButton.textContent = 'Lancer avec a-Shell';
     const copyButton = root.querySelector('#copyAShellCommand');
-    if (copyButton) {
-      copyButton.textContent = 'Copier commande';
-      copyButton.title = 'Copier les deux commandes a-Shell';
-    }
+    if (copyButton) copyButton.textContent = 'Copier commande';
   }
 
   function bind() {
@@ -222,19 +244,16 @@
 
     root.addEventListener('click', async (event) => {
       const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-      const button = path.find((node) => node?.id === 'openAShell' || node?.id === 'copyAShellCommand');
+      const button = path.find((node) => ['download', 'openAShell', 'copyAShellCommand'].includes(node?.id));
       if (!button) return;
 
       event.preventDefault();
       event.stopImmediatePropagation();
 
+      const media = window.__DLSTREAM_ACTIVE_MEDIA__;
       let command;
-      try {
-        command = buildCommand();
-      } catch (error) {
-        alert(error?.message || String(error));
-        return;
-      }
+      try { command = buildCommand(media); }
+      catch (error) { alert(error?.message || String(error)); return; }
 
       if (button.id === 'copyAShellCommand') {
         const ok = await copy(command);
@@ -244,19 +263,14 @@
         return;
       }
 
-      if (!copySync(command)) {
-        const ok = await copy(command);
-        if (!ok) {
-          alert('Impossible de copier la commande dans le presse-papiers. Utilise « Copier commande » puis lance le raccourci manuellement.');
-          return;
-        }
-      }
+      copySync(command);
       location.href = shortcutUrl();
     }, true);
   }
 
   window.DlStreamAShell = Object.freeze({
     buildCommand,
+    launch,
     shortcutUrl,
     titleFromPage,
     rememberedTitle,
