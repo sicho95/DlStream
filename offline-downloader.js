@@ -3,7 +3,7 @@
   if (!cfg?.appEntry || cfg.isNested) return;
 
   const DIRECT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|mpe|m2v|m2ts|mts|ts|vob|ogv|ogg|3gp|3g2|wmv|flv|f4v|asf|divx|rm|rmvb)(?:$|[?#])/i;
-  const STREAM_RE = /\.(m3u8|mpd|m3u|f4m)(?:$|[?#])/i;
+  const STREAM_RE = /(?:\.m3u(?:8)?|\.mpd|\.f4m|\.ismc)(?:$|[?#])|\.(?:ism|isml)\/manifest(?:$|[?#])/i;
 
   function normalizeMedia(media = {}) {
     const raw = media.url || media.downloadUrl || media.manifestUrl || '';
@@ -44,7 +44,7 @@
         type: item.type || 'unknown',
         mode: direct ? 'direct' : 'stream',
         reason: feasible
-          ? (direct ? 'Fichier complet détecté — téléchargement direct via a-Shell.' : 'Stream détecté — reconstruction/remux via a-Shell et ffmpeg.')
+          ? (direct ? 'Fichier complet détecté — téléchargement direct via a-Shell/curl.' : 'Stream détecté — reconstruction/remux via a-Shell/ffmpeg.')
           : 'Type média non pris en charge.',
       };
     },
@@ -57,10 +57,14 @@
     },
   });
 
-  if (!document.querySelector('script[data-dlstream-candidate-observer]')) {
+  function loadModule(path, marker) {
+    if (document.querySelector(`script[${marker}]`)) return;
     const script = document.createElement('script');
-    script.src = new URL('./candidate-observer.js?v=24', cfg.appEntry).href;
-    script.dataset.dlstreamCandidateObserver = '1';
+    script.src = new URL(`${path}?v=${cfg.build || '25'}`, cfg.appEntry).href;
+    script.setAttribute(marker, '1');
     document.head.appendChild(script);
   }
+
+  loadModule('./candidate-observer.js', 'data-dlstream-candidate-observer');
+  loadModule('./stream-detector-extra.js', 'data-dlstream-stream-detector');
 })();
