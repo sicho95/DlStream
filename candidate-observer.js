@@ -138,10 +138,63 @@
     }
   }
 
+  function safeFileStem(value) {
+    const clean = String(value || 'video')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/[^a-zA-Z0-9._ -]+/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\.+|\.+$/g, '');
+    return (clean || 'video').slice(0, 90);
+  }
+
+  function shellQuote(value) {
+    return `'${String(value || '').replace(/'/g, `'"'"'`)}'`;
+  }
+
+  function buildAShellCommand() {
+    const url = mediaUrl(active?.media);
+    if (!url) throw new Error('Aucun média actif pour a-Shell.');
+    const type = String(active?.media?.type || active?.media?.mediaType || '').toLowerCase();
+    if (!['hls', 'direct'].includes(type) && !/\.(?:m3u8|mp4|m4v|mov|webm|mkv|ts)(?:$|[?#])/i.test(url.href)) {
+      throw new Error('Ce média n’est pas adapté au téléchargement a-Shell.');
+    }
+
+    const title = safeFileStem(active?.media?.title || document.title || 'video');
+    const output = `~/Documents/DlStream/${title}.mp4`;
+    return `mkdir -p ~/Documents/DlStream && ffmpeg -y -i ${shellQuote(url.href)} -map '0:v?' -map '0:a?' -c copy -movflags +faststart ${shellQuote(output)}`;
+  }
+
   function openInVlc() {
     const url = mediaUrl(active?.media);
     if (!url) return;
     location.href = `vlc://${url.href}`;
+  }
+
+  async function openInAShell(button) {
+    let command;
+    try {
+      command = buildAShellCommand();
+    } catch (error) {
+      alert(error?.message || String(error));
+      return;
+    }
+
+    const ok = await copyText(command);
+    if (!ok) {
+      alert('Impossible de copier la commande a-Shell dans le presse-papiers.');
+      return;
+    }
+
+    const previous = button.textContent;
+    button.textContent = 'Commande copiée';
+    button.title = 'Colle la commande dans a-Shell puis valide.';
+    setTimeout(() => {
+      button.textContent = previous;
+      location.href = 'ashell://';
+    }, 350);
   }
 
   async function copyActiveUrl(button) {
@@ -165,7 +218,7 @@
 
     if (!active.check?.feasible) {
       const url = mediaUrl(active.media);
-      alert(`DlStream a bien détecté un média, mais le téléchargement n'est pas réalisable directement.\n\n${active.check?.reason || 'Cause inconnue.'}\n\nType : ${active.media.type || active.media.mediaType || 'inconnu'}\nURL : ${url?.href || ''}\n\nTu peux utiliser « VLC », « Copier URL » ou le mode « Dossier temporaire » dans le menu DlStream.`);
+      alert(`DlStream a bien détecté un média, mais le téléchargement n'est pas réalisable directement.\n\n${active.check?.reason || 'Cause inconnue.'}\n\nType : ${active.media.type || active.media.mediaType || 'inconnu'}\nURL : ${url?.href || ''}\n\nTu peux utiliser « a-Shell », « VLC », « Copier URL » ou le mode « Dossier temporaire » dans le menu DlStream.`);
       return;
     }
 
@@ -183,6 +236,14 @@
       actions.id = 'candidateActions';
       actions.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
 
+      const ashell = document.createElement('button');
+      ashell.id = 'openAShell';
+      ashell.type = 'button';
+      ashell.textContent = 'a-Shell';
+      ashell.title = 'Copier la commande ffmpeg puis ouvrir a-Shell';
+      ashell.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
+      ashell.addEventListener('click', () => openInAShell(ashell));
+
       const vlc = document.createElement('button');
       vlc.id = 'openVlc';
       vlc.type = 'button';
@@ -197,7 +258,7 @@
       copy.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
       copy.addEventListener('click', () => copyActiveUrl(copy));
 
-      actions.append(vlc, copy);
+      actions.append(ashell, vlc, copy);
       state?.parentElement?.appendChild(actions);
     }
     return actions;
