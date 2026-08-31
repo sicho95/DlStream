@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,58 +13,40 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main id="browser" class="browser-shell">
-    <iframe
-      id="platformFrame"
-      title="Plateforme de streaming"
-      allow="autoplay; fullscreen; picture-in-picture; encrypted-media; web-share"
-      allowfullscreen
-      referrerpolicy="strict-origin-when-cross-origin"
-    ></iframe>
-
-    <button id="menuButton" class="floating-button menu-button" type="button" aria-label="Réglages">•••</button>
-    <button id="downloadButton" class="floating-button download-button" type="button" aria-label="Télécharger" title="Télécharger" hidden>↓</button>
-
-    <div id="mediaToast" class="media-toast" hidden>
-      <span id="mediaTitle">Vidéo</span>
-      <button id="toastDownloadButton" type="button">Télécharger</button>
+  <main id="launcher" class="launcher">
+    <button id="settingsButton" class="floating settings" type="button" aria-label="Réglages">•••</button>
+    <div class="launch-content">
+      <div class="logo">D</div>
+      <h1>DlStream</h1>
+      <button id="openPlatformButton" class="open-button" type="button">Ouvrir la plateforme</button>
+      <p id="currentUrl" class="current-url"></p>
     </div>
   </main>
 
+  <section id="embeddedView" class="embedded-view" hidden>
+    <iframe id="platformFrame" title="Plateforme vidéo" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
+    <button id="embeddedSettingsButton" class="floating settings" type="button" aria-label="Réglages">•••</button>
+    <button id="downloadButton" class="floating download" type="button" hidden aria-label="Télécharger">↓</button>
+  </section>
+
   <dialog id="settingsDialog">
-    <form method="dialog" class="settings-sheet">
-      <div class="sheet-handle" aria-hidden="true"></div>
-      <div class="sheet-header">
-        <div>
-          <strong>DlStream</strong>
-          <small>Configuration</small>
-        </div>
-        <button value="cancel" class="icon-button" aria-label="Fermer">×</button>
+    <form id="settingsForm" class="panel">
+      <div class="panel-head">
+        <strong>Configuration</strong>
+        <button id="closeSettingsButton" type="button" class="icon-button">×</button>
       </div>
 
-      <label class="field">
-        <span>URL de la plateforme</span>
-        <input id="settingsPlatformUrl" type="url" inputmode="url" autocomplete="url" spellcheck="false">
+      <label>URL de la plateforme
+        <input id="platformUrlInput" type="url" inputmode="url" autocomplete="url" spellcheck="false">
       </label>
 
-      <div class="sheet-actions">
-        <button id="saveSettingsButton" value="default" class="primary">Enregistrer et ouvrir</button>
-        <button id="reloadButton" type="button">Recharger</button>
-        <button id="openDirectButton" type="button">Ouvrir directement</button>
-      </div>
+      <fieldset>
+        <legend>Mode d’affichage</legend>
+        <label class="choice"><input type="radio" name="displayMode" value="direct"> <span><strong>Direct</strong><small>Pour Didvip et les sites qui bloquent les iframes. La page est ouverte réellement, sans écran blanc.</small></span></label>
+        <label class="choice"><input type="radio" name="displayMode" value="embedded"> <span><strong>Intégré</strong><small>Pour ta future plateforme lorsqu’elle autorisera DlStream à l’afficher. Permet le bouton ↓ par-dessus.</small></span></label>
+      </fieldset>
 
-      <p class="hint">
-        « Ouvrir directement » sert de secours si le site interdit son affichage dans une iframe. Dans ce mode, la page distante prend la main et DlStream ne peut plus superposer son bouton de téléchargement.
-      </p>
-
-      <details>
-        <summary>Test média personnel</summary>
-        <div class="manual-test">
-          <input id="manualTitle" type="text" placeholder="Titre" value="Ma vidéo">
-          <input id="manualDownloadUrl" type="url" placeholder="URL directe du fichier à télécharger">
-          <button id="manualDownloadButton" type="button">Afficher le bouton téléchargement</button>
-        </div>
-      </details>
+      <button type="submit" class="save-button">Enregistrer</button>
     </form>
   </dialog>
 
