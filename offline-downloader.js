@@ -38,6 +38,22 @@
     return Array.isArray(map[cfg.rootHost]) ? map[cfg.rootHost].map(String).map((v) => v.toLowerCase()) : [];
   }
 
+  function learnDomains(domains = []) {
+    if (!trustedRoot()) return;
+    const ignored = new Set(ignoredDomains());
+    const current = new Set(learnedDomains());
+    const root = String(cfg.rootHost || '').toLowerCase();
+    for (const raw of domains) {
+      const host = String(raw || '').trim().toLowerCase();
+      if (!host || host === root || host.endsWith(`.${root}`) || ignored.has(host)) continue;
+      current.add(host);
+    }
+    const map = readMap('dlstream.learnedDomains');
+    map[cfg.rootHost] = [...current].slice(0, 128);
+    localStorage.setItem('dlstream.learnedDomains', JSON.stringify(map));
+    window.dispatchEvent(new CustomEvent('dlstream-domains-updated'));
+  }
+
   function hostAllowed(hostname) {
     const host = String(hostname || '').toLowerCase();
     if (!trustedRoot() || !host) return false;
@@ -82,8 +98,9 @@
       try {
         const response = await fetch(endpoint.href, { cache: 'no-store' });
         const data = await response.json();
+        if (Array.isArray(data?.discoveredDomains)) learnDomains(data.discoveredDomains);
         return data?.feasible
-          ? { feasible: true, type: 'hls', format: data.format || 'ts', reason: data.reason || 'HLS recomposable.' }
+          ? { feasible: true, type: 'hls', format: data.format || 'ts', reason: data.reason || 'HLS recomposable.', segmentCount: data.segmentCount || 0 }
           : { feasible: false, type: 'hls', reason: data?.reason || `Pré-contrôle HLS impossible (${response.status}).` };
       } catch (error) {
         return { feasible: false, type: 'hls', reason: error?.message || 'Pré-contrôle HLS impossible.' };
@@ -121,5 +138,5 @@
     return directDownload(media);
   }
 
-  window.DlStreamOffline = Object.freeze({ download, analyze, hostAllowed });
+  window.DlStreamOffline = Object.freeze({ download, analyze, hostAllowed, learnDomains });
 })();
