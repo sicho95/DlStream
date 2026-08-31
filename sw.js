@@ -1,10 +1,11 @@
-const CACHE = 'dlstream-static-v4';
+const CACHE = 'dlstream-static-v5';
 const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './browser-runtime.js',
+  './media-detector.js',
   './manifest.webmanifest',
   './icon.svg'
 ];
