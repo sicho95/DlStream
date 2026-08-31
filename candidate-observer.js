@@ -7,6 +7,7 @@
   let serial = 0;
   let boundButton = null;
   let shadowObserver = null;
+  let rescanRequested = false;
 
   function normalize(value, base = cfg.targetUrl) {
     try {
@@ -56,7 +57,7 @@
     }
 
     let bestFeasible = null;
-    let bestDetected = entries[0];
+    const bestDetected = entries[0];
 
     for (const entry of entries) {
       if (run !== serial) return;
@@ -147,9 +148,20 @@
     setTimeout(bindShadowUi, 250);
   }
 
+  function requestFreshScan() {
+    if (rescanRequested || !window.DlStreamMediaDetector?.scan) return;
+    rescanRequested = true;
+    queueMicrotask(() => {
+      try { window.DlStreamMediaDetector.scan(); } catch (_) {}
+    });
+  }
+
   function wrapDlStream() {
     const api = window.DlStream;
-    if (!api || api.__candidateObserverWrapped) return;
+    if (!api || api.__candidateObserverWrapped) {
+      if (api?.__candidateObserverWrapped) requestFreshScan();
+      return;
+    }
 
     const originalExposeCandidates = api.exposeCandidates?.bind(api);
     const originalExposeMedia = api.exposeMedia?.bind(api);
@@ -167,7 +179,10 @@
       __candidateObserverWrapped: true,
     };
 
-    try { window.DlStream = wrapped; } catch (_) {}
+    try {
+      window.DlStream = wrapped;
+      requestFreshScan();
+    } catch (_) {}
   }
 
   window.addEventListener('message', (event) => {
@@ -184,7 +199,8 @@
   const wrapTimer = setInterval(() => {
     wrapDlStream();
     bindShadowUi();
-    if (document.readyState === 'complete' && window.DlStream?.__candidateObserverWrapped && document.querySelector('#dlstream-controls')?.shadowRoot) {
+    requestFreshScan();
+    if (document.readyState === 'complete' && window.DlStream?.__candidateObserverWrapped && document.querySelector('#dlstream-controls')?.shadowRoot && rescanRequested) {
       clearInterval(wrapTimer);
     }
   }, 250);
