@@ -1,6 +1,9 @@
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const DEFAULT_PLATFORM_URL = 'https://didvip.com/b6ig41m4d/home/didvip';
 const MAX_RECURSION_DEPTH = 4;
+const PAGE_CACHE_NAME = 'dlstream-pages-v1';
+const MAX_PAGE_CACHE_AGE_MS = 5 * 60 * 1000;
+const TRANSIENT_PROXY_STATUS = new Set([500, 502, 503, 504]);
 
 const bootMessage = document.querySelector('#bootMessage');
 const bootError = document.querySelector('#bootError');
@@ -176,6 +179,92 @@ function buildAppUrl(targetUrl, { nested = false, depth = 0 } = {}) {
   return u.href;
 }
 
+function pageCacheRequest(targetUrl) {
+  const u = new URL('./__dlstream_page_cache__', appEntryUrl());
+  u.searchParams.set('url', targetUrl);
+  return new Request(u.href, { method: 'GET' });
+}
+
+async function cachePageHtml(targetUrl, html) {
+  if (!('caches' in window) || !html) return;
+  try {
+    const cache = await caches.open(PAGE_CACHE_NAME);
+    await cache.put(pageCacheRequest(targetUrl), new Response(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-DlStream-Cached-At': String(Date.now()),
+      },
+    }));
+  } catch (_) {}
+}
+
+async function readCachedPageHtml(targetUrl) {
+  if (!('caches' in window)) return null;
+  try {
+    const cache = await caches.open(PAGE_CACHE_NAME);
+    const response = await cache.match(pageCacheRequest(targetUrl));
+    if (!response) return null;
+    const cachedAt = Number(response.headers.get('X-DlStream-Cached-At') || 0);
+    if (!cachedAt || Date.now() - cachedAt > MAX_PAGE_CACHE_AGE_MS) return null;
+    const html = await response.text();
+    return html ? { html, cachedAt } : null;
+  } catch {
+    return null;
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchPageHtml(targetUrl) {
+  const delays = [0, 300, 900];
+  let lastError = null;
+
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) {
+      bootMessage.textContent = `Nouvelle tentative… (${attempt + 1}/${delays.length})`;
+      await sleep(delays[attempt]);
+    }
+
+    try {
+      const response = await fetch(buildProxyUrl(targetUrl), {
+        method: 'GET',
+        cache: 'no-store',
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        const error = new Error(`Proxy HTTP ${response.status}`);
+        error.status = response.status;
+        lastError = error;
+        if (TRANSIENT_PROXY_STATUS.has(response.status) && attempt < delays.length - 1) continue;
+        throw error;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/html')) {
+        throw new Error(`La cible n’a pas renvoyé une page HTML (${contentType || 'type inconnu'}).`);
+      }
+
+      const html = await response.text();
+      await cachePageHtml(targetUrl, html);
+      return { html, fromCache: false };
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      const transient = !status || TRANSIENT_PROXY_STATUS.has(status);
+      if (transient && attempt < delays.length - 1) continue;
+      break;
+    }
+  }
+
+  const cached = await readCachedPageHtml(targetUrl);
+  if (cached) return { html: cached.html, fromCache: true };
+  throw lastError || new Error('Impossible de joindre le proxy.');
+}
+
 function escapeInlineJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
@@ -195,13 +284,13 @@ function rewriteAllowedIframes(html, targetUrl, depth) {
   );
 }
 
-function transformHtml(html, targetUrl) {
+function transformHtml(html, targetUrl, { fromCache = false } = {}) {
   const target = new URL(targetUrl);
   const depth = getDepth();
-  const runtimeUrl = new URL('./browser-runtime.js?v=12', appEntryUrl()).href;
-  const detectorUrl = new URL('./media-detector.js?v=12', appEntryUrl()).href;
-  const downloaderUrl = new URL('./offline-downloader.js?v=12', appEntryUrl()).href;
-  const offlineUiUrl = new URL('./offline-ui.js?v=12', appEntryUrl()).href;
+  const runtimeUrl = new URL('./browser-runtime.js?v=13', appEntryUrl()).href;
+  const detectorUrl = new URL('./media-detector.js?v=13', appEntryUrl()).href;
+  const downloaderUrl = new URL('./offline-downloader.js?v=13', appEntryUrl()).href;
+  const offlineUiUrl = new URL('./offline-ui.js?v=13', appEntryUrl()).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
 
   if (rootIsTrusted()) learnHosts(discoverSourceHosts(html, target.href));
@@ -224,6 +313,7 @@ function transformHtml(html, targetUrl) {
     trustedRoots: getTrustedRoots(),
     learnedDomains: getLearnedDomains(),
     ignoredDomains: getIgnoredDomains(),
+    pageFromCache: Boolean(fromCache),
   };
 
   const injection = `\n<base href="${target.href.replace(/"/g, '&quot;')}">\n` +
@@ -258,11 +348,9 @@ async function loadPlatform(targetUrl) {
   bootMessage.textContent = 'Chargement via le proxy Sicho95…';
 
   try {
-    const response = await fetch(buildProxyUrl(normalized), { method: 'GET', cache: 'no-store', redirect: 'follow' });
-    if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('text/html')) throw new Error(`La cible n’a pas renvoyé une page HTML (${contentType || 'type inconnu'}).`);
-    const transformed = transformHtml(await response.text(), normalized);
+    const result = await fetchPageHtml(normalized);
+    if (result.fromCache) bootMessage.textContent = 'Proxy indisponible, ouverture du dernier chargement valide…';
+    const transformed = transformHtml(result.html, normalized, { fromCache: result.fromCache });
     document.open();
     document.write(transformed);
     document.close();
