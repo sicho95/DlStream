@@ -148,7 +148,9 @@ window.addEventListener('message', (event) => {
   const origin = platformOrigin();
   if (!origin || event.origin !== origin) return;
   if (event.source !== el.platformFrame.contentWindow) return;
-  if (event.data?.type !== 'SICHOSTREAM_MEDIA' || !event.data.media) return;
+
+  const acceptedTypes = ['DLSTREAM_MEDIA', 'SICHOSTREAM_MEDIA'];
+  if (!acceptedTypes.includes(event.data?.type) || !event.data.media) return;
 
   setCurrentMedia(event.data.media);
 });
