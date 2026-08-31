@@ -1,13 +1,13 @@
 (() => {
   const cfg = window.__DLSTREAM__;
-  if (!cfg?.targetUrl || !cfg?.rootTrusted) return;
+  if (!cfg?.targetUrl) return;
 
   const DIRECT_RE = /\.(mp4|m4v|mov|webm|mkv|avi)(?:$|[?#])/i;
   const HLS_RE = /\.m3u8(?:$|[?#])/i;
   const DASH_RE = /\.mpd(?:$|[?#])/i;
   const MAX_SCRIPT_TEXT = 1_000_000;
+  const publishedUrls = new Set();
   let scanTimer = null;
-  let lastPublishedUrl = '';
 
   function normalize(value, base = cfg.targetUrl) {
     if (!value) return null;
@@ -15,6 +15,17 @@
       const u = new URL(String(value).trim(), base);
       return ['http:', 'https:'].includes(u.protocol) ? u : null;
     } catch { return null; }
+  }
+
+  function rootTrusted() {
+    try {
+      const roots = JSON.parse(localStorage.getItem('dlstream.trustedRoots') || '[]');
+      const host = String(cfg.rootHost || '').toLowerCase();
+      return Array.isArray(roots) && roots.some((raw) => {
+        const root = String(raw || '').toLowerCase();
+        return host === root || host.endsWith(`.${root}`);
+      });
+    } catch { return false; }
   }
 
   function mediaType(url, mime = '') {
@@ -106,26 +117,22 @@
   }
 
   function collectInline(list) {
-    const pattern = /(?:https?:\\?\/\\?\/|["'])([^\s"'<>`\\]+?\.(?:mp4|m4v|mov|webm|mkv|avi|m3u8|mpd)(?:\?[^\s"'<>`\\]*)?)/gi;
     document.querySelectorAll('script:not([src])').forEach((script) => {
       let text = script.textContent || '';
       if (!text || text.length > MAX_SCRIPT_TEXT) return;
       text = text.replace(/\\\//g, '/');
-      for (const match of text.matchAll(pattern)) {
-        const raw = match[0].replace(/^["']/, '');
-        addCandidate(list, raw, 640, 'inline-script');
-      }
+
+      const absolute = /https?:\/\/[^\s"'<>`\\]+?\.(?:mp4|m4v|mov|webm|mkv|avi|m3u8|mpd)(?:\?[^\s"'<>`\\]*)?/gi;
+      for (const match of text.matchAll(absolute)) addCandidate(list, match[0], 650, 'inline-script-absolute');
+
+      const quoted = /["']([^"']+?\.(?:mp4|m4v|mov|webm|mkv|avi|m3u8|mpd)(?:\?[^"']*)?)["']/gi;
+      for (const match of text.matchAll(quoted)) addCandidate(list, match[1], 620, 'inline-script-relative');
     });
   }
 
-  function choose(candidates) {
-    if (!candidates.length) return null;
-    return candidates.sort((a, b) => b.score - a.score)[0];
-  }
-
   function publish(candidate) {
-    if (!candidate || !window.DlStream?.exposeMedia || candidate.url.href === lastPublishedUrl) return;
-    lastPublishedUrl = candidate.url.href;
+    if (!candidate || !window.DlStream?.exposeMedia || publishedUrls.has(candidate.url.href)) return;
+    publishedUrls.add(candidate.url.href);
     window.DlStream.exposeMedia({
       title: candidate.title,
       type: candidate.type,
@@ -139,19 +146,34 @@
   }
 
   function scan() {
+    if (!rootTrusted()) return;
     const candidates = [];
-    collectExplicit(candidates); collectElements(candidates); collectAttributes(candidates); collectMetadata(candidates); collectJson(candidates); collectInline(candidates);
-    publish(choose(candidates));
+    collectExplicit(candidates);
+    collectElements(candidates);
+    collectAttributes(candidates);
+    collectMetadata(candidates);
+    collectJson(candidates);
+    collectInline(candidates);
+    candidates.sort((a, b) => b.score - a.score).slice(0, 30).forEach(publish);
   }
 
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scan, 250); }
+
   function start() {
     scan();
     const observer = new MutationObserver(scheduleScan);
-    observer.observe(document.documentElement, { subtree:true, childList:true, attributes:true, attributeFilter:['src','href','download','content','data-dlstream-download-url','data-dlstream-manifest-url','data-download-url','data-file-url','data-video-url','data-video-src','data-file','data-src','data-manifest','data-manifest-url','data-hls','data-dash'] });
-    window.addEventListener('load', scheduleScan, { once:true });
-    window.DlStreamMediaDetector = Object.freeze({ scan, rescan:scheduleScan });
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['src','href','download','content','data-dlstream-download-url','data-dlstream-manifest-url','data-download-url','data-file-url','data-video-url','data-video-src','data-file','data-src','data-manifest','data-manifest-url','data-hls','data-dash'],
+    });
+    window.addEventListener('load', scheduleScan, { once: true });
+    window.addEventListener('storage', scheduleScan);
+    window.addEventListener('dlstream-domains-updated', scheduleScan);
+    window.DlStreamMediaDetector = Object.freeze({ scan, rescan: scheduleScan });
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true }); else start();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
 })();
