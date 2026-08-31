@@ -6,6 +6,7 @@ const APP_SHELL = [
   './app.js',
   './browser-runtime.js',
   './media-detector.js',
+  './stream-detector-extra.js',
   './offline-downloader.js',
   './candidate-observer.js',
   './ashell-title.js',
