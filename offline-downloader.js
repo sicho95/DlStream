@@ -81,18 +81,58 @@
     return normalize(media.downloadUrl || media.manifestUrl || media.url);
   }
 
+  function corsBlocked(reason) {
+    return /\bCORS\b/i.test(String(reason || ''));
+  }
+
   async function analyzeDirect(u) {
     const endpoint = new URL('./__dlstream_direct_probe__', cfg.appEntry);
     endpoint.searchParams.set('url', u.href);
     endpoint.searchParams.set('allowed', allowedQuery());
+
     try {
       const response = await fetch(endpoint.href, { cache: 'no-store' });
       const data = await response.json();
-      return data?.feasible
-        ? { feasible: true, type: 'direct', reason: data.reason || 'Fichier direct téléchargeable.', contentType: data.contentType || '', size: data.size || null }
-        : { feasible: false, type: 'direct', reason: data?.reason || `Pré-contrôle direct impossible (${response.status}).` };
+
+      if (data?.feasible) {
+        return {
+          feasible: true,
+          type: 'direct',
+          mode: 'local-relay',
+          reason: data.reason || 'Fichier direct téléchargeable.',
+          contentType: data.contentType || '',
+          size: data.size || null,
+        };
+      }
+
+      // Une navigation navigateur vers un fichier direct n'est pas soumise au CORS de fetch.
+      // Conserver donc le bouton de téléchargement si seul le relais local est bloqué par CORS.
+      if (corsBlocked(data?.reason)) {
+        return {
+          feasible: true,
+          type: 'direct',
+          mode: 'browser-direct',
+          reason: 'Fichier direct détecté ; le relais local est bloqué par CORS, ouverture directe du fichier.',
+          contentType: '',
+          size: null,
+        };
+      }
+
+      return {
+        feasible: false,
+        type: 'direct',
+        reason: data?.reason || `Pré-contrôle direct impossible (${response.status}).`,
+      };
     } catch (error) {
-      return { feasible: false, type: 'direct', reason: error?.message || 'Pré-contrôle du fichier direct impossible.' };
+      const reason = error?.message || 'Pré-contrôle du fichier direct impossible.';
+      return corsBlocked(reason)
+        ? {
+            feasible: true,
+            type: 'direct',
+            mode: 'browser-direct',
+            reason: 'Fichier direct détecté ; le relais local est bloqué par CORS, ouverture directe du fichier.',
+          }
+        : { feasible: false, type: 'direct', reason };
     }
   }
 
@@ -125,7 +165,21 @@
     return analyzeDirect(u);
   }
 
-  function directDownload(media) {
+  function browserDirectDownload(media) {
+    const u = mediaUrl(media);
+    if (!u || !hostAllowed(u.hostname)) throw new Error('Fichier hors domaines autorisés pour cette racine.');
+
+    const a = document.createElement('a');
+    a.href = u.href;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    if (media.filename) a.download = media.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function localRelayDownload(media) {
     const u = mediaUrl(media);
     if (!u || !hostAllowed(u.hostname)) throw new Error('Fichier hors domaines autorisés pour cette racine.');
     const ext = (u.pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'mp4').toLowerCase();
@@ -150,7 +204,8 @@
     const check = media.downloadCheck || await analyze(media);
     if (!check?.feasible) throw new Error(check?.reason || 'Ce média ne peut pas être téléchargé localement.');
     if (check.type === 'hls') return hlsDownload(media);
-    if (check.type === 'direct') return directDownload(media);
+    if (check.type === 'direct' && check.mode === 'browser-direct') return browserDirectDownload(media);
+    if (check.type === 'direct') return localRelayDownload(media);
     throw new Error(check.reason || 'Ce média ne peut pas être assemblé localement.');
   }
 
