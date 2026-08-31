@@ -1,138 +1,147 @@
-const $ = (selector) => document.querySelector(selector);
-
-const el = {
-  launcher: $('#launcher'),
-  embeddedView: $('#embeddedView'),
-  platformFrame: $('#platformFrame'),
-  openPlatformButton: $('#openPlatformButton'),
-  currentUrl: $('#currentUrl'),
-  settingsButton: $('#settingsButton'),
-  embeddedSettingsButton: $('#embeddedSettingsButton'),
-  downloadButton: $('#downloadButton'),
-  settingsDialog: $('#settingsDialog'),
-  settingsForm: $('#settingsForm'),
-  closeSettingsButton: $('#closeSettingsButton'),
-  platformUrlInput: $('#platformUrlInput'),
-};
-
+const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const DEFAULT_PLATFORM_URL = 'https://didvip.com/b6ig41m4d/home/didvip';
-const DEFAULT_MODE = 'direct';
-let currentMedia = null;
+
+const bootMessage = document.querySelector('#bootMessage');
+const bootError = document.querySelector('#bootError');
+const errorText = document.querySelector('#errorText');
+const retryButton = document.querySelector('#retryButton');
+const directButton = document.querySelector('#directButton');
+const configForm = document.querySelector('#configForm');
+const platformUrlInput = document.querySelector('#platformUrl');
 
 function normalizeUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
   try {
-    const url = new URL(raw);
-    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
+    const u = new URL(raw);
+    return ['http:', 'https:'].includes(u.protocol) ? u.href : null;
   } catch {
     try {
-      return new URL(`https://${raw}`).toString();
+      return new URL(`https://${raw}`).href;
     } catch {
       return null;
     }
   }
 }
 
-function getPlatformUrl() {
+function getStoredPlatformUrl() {
   return localStorage.getItem('dlstream.platformUrl') || DEFAULT_PLATFORM_URL;
 }
 
-function getDisplayMode() {
-  return localStorage.getItem('dlstream.displayMode') || DEFAULT_MODE;
+function getRequestedPlatformUrl() {
+  const q = new URL(location.href).searchParams.get('url');
+  return normalizeUrl(q) || getStoredPlatformUrl();
 }
 
-function saveSettings(url, mode) {
-  const normalized = normalizeUrl(url);
-  if (!normalized) return false;
-  localStorage.setItem('dlstream.platformUrl', normalized);
-  localStorage.setItem('dlstream.displayMode', mode === 'embedded' ? 'embedded' : 'direct');
-  return true;
+function buildProxyUrl(targetUrl) {
+  const u = new URL(PROXY_BASE);
+  u.searchParams.set('url', targetUrl);
+  return u.href;
 }
 
-function configuredOrigin() {
-  try {
-    return new URL(getPlatformUrl()).origin;
-  } catch {
-    return null;
+function escapeInlineJson(value) {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function transformHtml(html, targetUrl) {
+  const target = new URL(targetUrl);
+  const appEntry = new URL('./', location.href);
+  appEntry.search = '';
+  appEntry.hash = '';
+
+  const runtimeUrl = new URL('./browser-runtime.js', appEntry).href;
+  const manifestUrl = new URL('./manifest.webmanifest', appEntry).href;
+
+  let out = String(html || '');
+
+  // Supprimer les politiques HTML qui pourraient bloquer notre runtime local.
+  out = out.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
+  out = out.replace(/<base\b[^>]*>/gi, '');
+
+  const config = {
+    targetUrl: target.href,
+    upstreamOrigin: target.origin,
+    appEntry: appEntry.href,
+    proxyBase: PROXY_BASE,
+  };
+
+  const injection = `\n<base href="${target.href.replace(/"/g, '&quot;')}">\n` +
+    `<meta name="apple-mobile-web-app-capable" content="yes">\n` +
+    `<link rel="manifest" href="${manifestUrl}">\n` +
+    `<script>window.__DLSTREAM__=${escapeInlineJson(config)};<\/script>\n` +
+    `<script src="${runtimeUrl}"><\/script>\n`;
+
+  if (/<head\b[^>]*>/i.test(out)) {
+    out = out.replace(/<head\b([^>]*)>/i, `<head$1>${injection}`);
+  } else if (/<html\b[^>]*>/i.test(out)) {
+    out = out.replace(/<html\b([^>]*)>/i, `<html$1><head>${injection}</head>`);
+  } else {
+    out = `<!doctype html><html><head>${injection}</head><body>${out}</body></html>`;
   }
+
+  return out;
 }
 
-function renderLauncher() {
-  el.launcher.hidden = false;
-  el.embeddedView.hidden = true;
-  el.currentUrl.textContent = getPlatformUrl();
+function showError(message, targetUrl) {
+  bootMessage.textContent = 'Impossible de charger la plateforme';
+  errorText.textContent = message;
+  platformUrlInput.value = targetUrl;
+  bootError.hidden = false;
 }
 
-function renderEmbedded() {
-  el.launcher.hidden = true;
-  el.embeddedView.hidden = false;
-  el.platformFrame.src = getPlatformUrl();
-}
-
-function openPlatform() {
-  const url = getPlatformUrl();
-  if (getDisplayMode() === 'embedded') {
-    renderEmbedded();
+async function loadPlatform(targetUrl) {
+  const normalized = normalizeUrl(targetUrl);
+  if (!normalized) {
+    showError('URL de plateforme invalide.', targetUrl || '');
     return;
   }
 
-  // Navigation réellement directe : aucune iframe, donc pas de blocage frame-ancestors/X-Frame-Options.
-  window.location.assign(url);
+  localStorage.setItem('dlstream.platformUrl', normalized);
+  platformUrlInput.value = normalized;
+  bootError.hidden = true;
+  bootMessage.textContent = 'Chargement via le proxy Sicho95…';
+
+  try {
+    const response = await fetch(buildProxyUrl(normalized), {
+      method: 'GET',
+      cache: 'no-store',
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Proxy HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      throw new Error(`La cible n’a pas renvoyé une page HTML (${contentType || 'type inconnu'}).`);
+    }
+
+    const html = await response.text();
+    const transformed = transformHtml(html, normalized);
+
+    document.open();
+    document.write(transformed);
+    document.close();
+  } catch (error) {
+    showError(error?.message || String(error), normalized);
+  }
 }
 
-function openSettings() {
-  el.platformUrlInput.value = getPlatformUrl();
-  const mode = getDisplayMode();
-  const radio = document.querySelector(`input[name="displayMode"][value="${mode}"]`);
-  if (radio) radio.checked = true;
-  el.settingsDialog.showModal();
-}
-
-function startDownload() {
-  if (!currentMedia?.downloadUrl) return;
-  const url = normalizeUrl(currentMedia.downloadUrl);
-  if (!url) return;
-  window.open(url, '_blank', 'noopener');
-}
-
-el.openPlatformButton.addEventListener('click', openPlatform);
-el.settingsButton.addEventListener('click', openSettings);
-el.embeddedSettingsButton.addEventListener('click', openSettings);
-el.closeSettingsButton.addEventListener('click', () => el.settingsDialog.close());
-el.downloadButton.addEventListener('click', startDownload);
-
-el.settingsForm.addEventListener('submit', (event) => {
+retryButton.addEventListener('click', () => loadPlatform(getRequestedPlatformUrl()));
+directButton.addEventListener('click', () => location.assign(getRequestedPlatformUrl()));
+configForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  const mode = new FormData(el.settingsForm).get('displayMode') || DEFAULT_MODE;
-  if (!saveSettings(el.platformUrlInput.value, mode)) return;
-  el.settingsDialog.close();
-  currentMedia = null;
-  el.downloadButton.hidden = true;
-  if (mode === 'embedded') renderEmbedded();
-  else renderLauncher();
+  const u = normalizeUrl(platformUrlInput.value);
+  if (!u) return;
+  localStorage.setItem('dlstream.platformUrl', u);
+  const app = new URL('./', location.href);
+  app.searchParams.set('url', u);
+  location.assign(app.href);
 });
-
-window.addEventListener('message', (event) => {
-  if (getDisplayMode() !== 'embedded') return;
-  const origin = configuredOrigin();
-  if (!origin || event.origin !== origin) return;
-  if (event.source !== el.platformFrame.contentWindow) return;
-  if (!['DLSTREAM_MEDIA', 'SICHOSTREAM_MEDIA'].includes(event.data?.type)) return;
-
-  const media = event.data?.media || {};
-  currentMedia = {
-    title: String(media.title || 'Vidéo').slice(0, 200),
-    downloadUrl: normalizeUrl(media.downloadUrl),
-    filename: String(media.filename || 'video.mp4').slice(0, 180),
-  };
-  el.downloadButton.hidden = !currentMedia.downloadUrl;
-});
-
-renderLauncher();
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
+
+loadPlatform(getRequestedPlatformUrl());
