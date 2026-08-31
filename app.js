@@ -201,6 +201,7 @@ function transformHtml(html, targetUrl) {
   const runtimeUrl = new URL('./browser-runtime.js', appEntryUrl()).href;
   const detectorUrl = new URL('./media-detector.js', appEntryUrl()).href;
   const downloaderUrl = new URL('./offline-downloader.js', appEntryUrl()).href;
+  const offlineUiUrl = new URL('./offline-ui.js', appEntryUrl()).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
 
   if (rootIsTrusted()) learnHosts(discoverSourceHosts(html, target.href));
@@ -231,6 +232,7 @@ function transformHtml(html, targetUrl) {
     `<script>window.__DLSTREAM__=${escapeInlineJson(config)};<\/script>\n` +
     `<script src="${runtimeUrl}"><\/script>\n` +
     `<script src="${downloaderUrl}"><\/script>\n` +
+    `<script src="${offlineUiUrl}"><\/script>\n` +
     `<script src="${detectorUrl}"><\/script>\n`;
 
   if (/<head\b[^>]*>/i.test(out)) out = out.replace(/<head\b([^>]*)>/i, `<head$1>${injection}`);
