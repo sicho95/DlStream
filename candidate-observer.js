@@ -18,6 +18,21 @@
     }
   }
 
+  function appBase() {
+    try { return new URL(cfg.appEntry); } catch { return null; }
+  }
+
+  function isDlStreamAsset(url) {
+    const app = appBase();
+    if (!url || !app || url.origin !== app.origin) return false;
+    const basePath = app.pathname.endsWith('/') ? app.pathname : `${app.pathname}/`;
+    if (!url.pathname.startsWith(basePath)) return false;
+    const relative = url.pathname.slice(basePath.length).toLowerCase();
+    if (!relative) return true;
+    return /(?:^|\/)(?:index\.html|manifest(?:\.webmanifest|\.webm)?|sw\.js|app\.js|browser-runtime(?:-v2)?\.js|media-detector\.js|offline-downloader\.js|candidate-observer\.js|styles\.css|icon\.svg)$/i.test(relative)
+      || /\.(?:js|css|webmanifest|svg|html)$/i.test(relative);
+  }
+
   function keyFor(media) {
     return `${media?.type || media?.mediaType || ''}|${media?.url || media?.downloadUrl || media?.manifestUrl || ''}`;
   }
@@ -30,10 +45,14 @@
     return 0;
   }
 
+  function mediaUrl(media) {
+    return normalize(media?.url || media?.downloadUrl || media?.manifestUrl, media?.sourcePage || cfg.targetUrl);
+  }
+
   function addBatch(list, sourcePage = cfg.targetUrl) {
     for (const raw of Array.isArray(list) ? list : []) {
       const url = normalize(raw?.url || raw?.downloadUrl || raw?.manifestUrl, sourcePage);
-      if (!url) continue;
+      if (!url || isDlStreamAsset(url)) continue;
       const item = { ...raw, url: url.href, sourcePage };
       const key = keyFor(item);
       const previous = candidates.get(key);
@@ -47,6 +66,7 @@
   async function evaluate() {
     const run = ++serial;
     const entries = [...candidates.values()]
+      .filter((entry) => !isDlStreamAsset(mediaUrl(entry.media)))
       .sort((a, b) => (typePriority(b.media) + Number(b.media?.score || 0)) - (typePriority(a.media) + Number(a.media?.score || 0)))
       .slice(0, 20);
 
@@ -85,10 +105,44 @@
     if (!entry?.media) return 'Aucun média détecté.';
     const media = entry.media;
     const check = entry.check || {};
-    const url = normalize(media.url || media.downloadUrl || media.manifestUrl, media.sourcePage || cfg.targetUrl);
+    const url = mediaUrl(media);
     const type = String(media.type || media.mediaType || 'inconnu').toUpperCase();
     const state = check.feasible ? 'téléchargement possible' : (check.reason || 'téléchargement non vérifié');
     return `${type} • ${state}${url ? ` • ${url.hostname}` : ''}`;
+  }
+
+  async function copyText(text) {
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) {}
+      area.remove();
+      return ok;
+    }
+  }
+
+  function openInVlc() {
+    const url = mediaUrl(active?.media);
+    if (!url) return;
+    location.href = `vlc://${url.href}`;
+  }
+
+  async function copyActiveUrl(button) {
+    const url = mediaUrl(active?.media);
+    if (!url) return;
+    const ok = await copyText(url.href);
+    const previous = button.textContent;
+    button.textContent = ok ? 'Copié' : 'Échec copie';
+    setTimeout(() => { button.textContent = previous; }, 1200);
   }
 
   async function handleDownload(event) {
@@ -101,7 +155,8 @@
     syncUi();
 
     if (!active.check?.feasible) {
-      alert(`DlStream a bien détecté un média, mais le téléchargement n'est pas réalisable directement.\n\n${active.check?.reason || 'Cause inconnue.'}\n\nType : ${active.media.type || active.media.mediaType || 'inconnu'}\nURL : ${active.media.url || active.media.downloadUrl || active.media.manifestUrl || ''}`);
+      const url = mediaUrl(active.media);
+      alert(`DlStream a bien détecté un média, mais le téléchargement n'est pas réalisable directement.\n\n${active.check?.reason || 'Cause inconnue.'}\n\nType : ${active.media.type || active.media.mediaType || 'inconnu'}\nURL : ${url?.href || ''}\n\nTu peux utiliser « VLC » ou « Copier URL » dans le menu DlStream.`);
       return;
     }
 
@@ -112,6 +167,33 @@
     }
   }
 
+  function ensureActionButtons(root, state) {
+    let actions = root.querySelector('#candidateActions');
+    if (!actions) {
+      actions = document.createElement('div');
+      actions.id = 'candidateActions';
+      actions.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
+
+      const vlc = document.createElement('button');
+      vlc.id = 'openVlc';
+      vlc.type = 'button';
+      vlc.textContent = 'VLC';
+      vlc.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
+      vlc.addEventListener('click', openInVlc);
+
+      const copy = document.createElement('button');
+      copy.id = 'copyMediaUrl';
+      copy.type = 'button';
+      copy.textContent = 'Copier URL';
+      copy.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
+      copy.addEventListener('click', () => copyActiveUrl(copy));
+
+      actions.append(vlc, copy);
+      state?.parentElement?.appendChild(actions);
+    }
+    return actions;
+  }
+
   function bindShadowUi() {
     const host = document.querySelector('#dlstream-controls');
     const root = host?.shadowRoot;
@@ -120,6 +202,8 @@
     const button = root.querySelector('#download');
     const state = root.querySelector('#mediaState');
     if (!button) return false;
+
+    const actions = ensureActionButtons(root, state);
 
     if (boundButton !== button) {
       boundButton?.removeEventListener('click', handleDownload, true);
@@ -137,9 +221,14 @@
       button.hidden = false;
       button.style.opacity = active.check?.feasible ? '1' : '.72';
       button.title = active.check?.feasible ? 'Télécharger' : 'Média détecté : voir le diagnostic';
+      if (actions) actions.hidden = false;
+      if (state) state.textContent = describe(active);
+    } else {
+      button.hidden = true;
+      if (actions) actions.hidden = true;
+      if (state) state.textContent = 'Aucun média détecté.';
     }
 
-    if (state && active?.media) state.textContent = describe(active);
     return true;
   }
 
