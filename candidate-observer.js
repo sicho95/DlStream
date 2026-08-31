@@ -3,8 +3,9 @@
   if (!cfg || cfg.isNested) return;
 
   const candidates = new Map();
-  let active = null;
+  let activeKey = '';
   let wrapped = false;
+  let boundRoot = null;
 
   function normalize(value, base = cfg.targetUrl) {
     try {
@@ -15,51 +16,117 @@
     }
   }
 
+  function appBase() {
+    try { return new URL(cfg.appEntry); } catch { return null; }
+  }
+
+  function isDlStreamAsset(url) {
+    const app = appBase();
+    if (!url || !app || url.origin !== app.origin) return false;
+    const basePath = app.pathname.endsWith('/') ? app.pathname : `${app.pathname}/`;
+    if (!url.pathname.startsWith(basePath)) return false;
+    const relative = url.pathname.slice(basePath.length).toLowerCase();
+    if (!relative) return true;
+    return /(?:^|\/)(?:index\.html|manifest(?:\.webmanifest|\.webm)?|sw\.js|app\.js|browser-runtime\.js|media-detector\.js|offline-downloader\.js|candidate-observer\.js|ashell-title\.js|styles\.css|icon\.svg)$/i.test(relative)
+      || /\.(?:js|css|webmanifest|svg|html)$/i.test(relative);
+  }
+
   function mediaUrl(media) {
     return normalize(media?.url || media?.downloadUrl || media?.manifestUrl, media?.sourcePage || cfg.targetUrl);
   }
 
   function keyFor(media) {
     const url = mediaUrl(media);
-    return `${media?.type || media?.mediaType || ''}|${url?.href || ''}`;
+    return `${String(media?.type || media?.mediaType || '').toLowerCase()}|${url?.href || ''}`;
   }
 
-  function priority(media) {
+  function typePriority(media) {
     const type = String(media?.type || media?.mediaType || '').toLowerCase();
-    const typeScore = type === 'direct' ? 3000 : type === 'hls' ? 2000 : type === 'dash' ? 1000 : 0;
-    return typeScore + Number(media?.score || 0);
+    if (type === 'direct') return 4000;
+    if (type === 'hls') return 3000;
+    if (type === 'dash') return 2500;
+    if (type === 'stream') return 2000;
+    return 0;
   }
 
-  function publish() {
-    const media = active ? { ...active } : null;
-    window.__DLSTREAM_ACTIVE_MEDIA__ = media;
-    document.dispatchEvent(new CustomEvent('dlstream-active-media', { detail: media }));
+  function sortedEntries() {
+    return [...candidates.entries()]
+      .sort((a, b) => (typePriority(b[1]) + Number(b[1]?.score || 0)) - (typePriority(a[1]) + Number(a[1]?.score || 0)))
+      .slice(0, 40);
   }
 
-  function selectBest() {
-    active = [...candidates.values()].sort((a, b) => priority(b) - priority(a))[0] || null;
-    publish();
-    syncUi();
+  function activeMedia() {
+    const selected = candidates.get(activeKey);
+    if (selected) return selected;
+    const first = sortedEntries()[0];
+    return first?.[1] || null;
+  }
+
+  function publishActive() {
+    const media = activeMedia();
+    window.__DLSTREAM_ACTIVE_MEDIA__ = media ? { ...media } : null;
+    document.dispatchEvent(new CustomEvent('dlstream-active-media', { detail: window.__DLSTREAM_ACTIVE_MEDIA__ }));
   }
 
   function addBatch(list, sourcePage = cfg.targetUrl) {
     for (const raw of Array.isArray(list) ? list : []) {
       const url = normalize(raw?.url || raw?.downloadUrl || raw?.manifestUrl, sourcePage);
-      if (!url) continue;
+      if (!url || isDlStreamAsset(url)) continue;
       const media = { ...raw, url: url.href, sourcePage };
-      candidates.set(keyFor(media), media);
+      const key = keyFor(media);
+      const previous = candidates.get(key);
+      if (!previous || Number(media?.score || 0) >= Number(previous?.score || 0)) candidates.set(key, media);
     }
-    selectBest();
+
+    if (!activeKey || !candidates.has(activeKey)) activeKey = sortedEntries()[0]?.[0] || '';
+    publishActive();
+    syncUi();
+  }
+
+  function kind(media) {
+    const type = String(media?.type || media?.mediaType || '').toLowerCase();
+    return type === 'direct' ? 'direct' : 'stream';
+  }
+
+  function filenameFor(media) {
+    if (media?.filename) return String(media.filename);
+    const url = mediaUrl(media);
+    try { return decodeURIComponent(url?.pathname?.split('/').filter(Boolean).pop() || 'video'); }
+    catch { return 'video'; }
+  }
+
+  function triggerDirectDownload(media) {
+    const url = mediaUrl(media);
+    if (!url) throw new Error('URL de fichier direct invalide.');
+    const anchor = document.createElement('a');
+    anchor.href = url.href;
+    anchor.download = filenameFor(media);
+    anchor.rel = 'noopener';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  function smartDownload(media) {
+    if (!media) return;
+    if (kind(media) === 'direct') {
+      triggerDirectDownload(media);
+      return;
+    }
+    if (!window.DlStreamAShell?.launch) throw new Error('Le module a-Shell n’est pas disponible.');
+    window.DlStreamAShell.launch(media);
   }
 
   function buttonStyle(button) {
-    button.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
+    button.style.cssText = 'pointer-events:auto;min-height:36px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 10px';
   }
 
   function ensureActions(root, state) {
-    root.querySelector('#download')?.remove();
     root.querySelector('#offlineJobPanel')?.remove();
     root.querySelector('#folderModePanel')?.remove();
+    root.querySelector('#openVlc')?.remove();
+    root.querySelector('#copyMediaUrl')?.remove();
 
     let actions = root.querySelector('#candidateActions');
     if (!actions) {
@@ -79,32 +146,135 @@
       copy.textContent = 'Copier commande';
       buttonStyle(copy);
 
-      actions.append(launch, copy);
+      const info = document.createElement('button');
+      info.id = 'ashellInfoButton';
+      info.type = 'button';
+      info.textContent = 'ⓘ a-Shell';
+      buttonStyle(info);
+
+      actions.append(launch, copy, info);
       state?.parentElement?.appendChild(actions);
     }
-
-    actions.querySelector('#openVlc')?.remove();
-    actions.querySelector('#copyMediaUrl')?.remove();
     return actions;
+  }
+
+  function ensureInfo(root, state) {
+    let panel = root.querySelector('#ashellInfoPanel');
+    if (panel) return panel;
+
+    panel = document.createElement('div');
+    panel.id = 'ashellInfoPanel';
+    panel.hidden = true;
+    panel.style.cssText = 'margin-top:9px;padding:10px;border-radius:11px;background:#18181b;border:1px solid #34343a;font-size:11px;line-height:1.45;color:#d4d4da';
+    panel.innerHTML = `
+      <strong style="display:block;margin-bottom:6px">Configurer a-Shell une seule fois</strong>
+      <div>1. Installer <strong>a-Shell</strong> depuis l’App Store.</div>
+      <div>2. Dans Raccourcis, créer un raccourci nommé exactement <strong>DlStream a-Shell</strong>.</div>
+      <div>3. Ajouter <strong>Obtenir le presse-papiers</strong>.</div>
+      <div>4. Ajouter l’action a-Shell <strong>Exécuter</strong> et lui donner la variable <strong>Presse-papiers</strong>.</div>
+      <div>5. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que ffmpeg soit disponible.</div>
+      <div style="margin-top:7px;color:#a8a8b0">La flèche télécharge directement les fichiers complets. Pour HLS/DASH/streams, DlStream copie la commande puis lance ce raccourci.</div>`;
+    state?.parentElement?.appendChild(panel);
+    return panel;
+  }
+
+  function ensureList(root, state) {
+    let list = root.querySelector('#candidateList');
+    if (!list) {
+      list = document.createElement('div');
+      list.id = 'candidateList';
+      list.style.cssText = 'display:grid;gap:6px;margin-top:8px';
+      state?.parentElement?.insertBefore(list, root.querySelector('#candidateActions') || null);
+    }
+    return list;
+  }
+
+  function renderList(root, state) {
+    const list = ensureList(root, state);
+    list.innerHTML = '';
+
+    for (const [key, media] of sortedEntries()) {
+      const url = mediaUrl(media);
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.dataset.mediaKey = key;
+      const selected = key === activeKey;
+      row.style.cssText = `pointer-events:auto;text-align:left;width:100%;border:1px solid ${selected ? '#fff' : '#34343a'};border-radius:9px;background:${selected ? '#2a2a30' : '#18181b'};color:#fff;padding:7px 8px`;
+
+      const type = String(media.type || media.mediaType || 'média').toUpperCase();
+      const name = filenameFor(media);
+      row.innerHTML = `<div style="font-size:11px;font-weight:700">${type} · ${kind(media) === 'direct' ? 'fichier direct' : 'à reconstruire'}</div><div style="font-size:10px;color:#b5b5bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div><div style="font-size:9px;color:#85858d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${url?.hostname || ''}</div>`;
+      list.appendChild(row);
+    }
   }
 
   function syncUi() {
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
     if (!root) return false;
+    boundRoot = root;
 
+    const media = activeMedia();
+    const download = root.querySelector('#download');
     const state = root.querySelector('#mediaState');
     const actions = ensureActions(root, state);
-    actions.hidden = !active;
+    const info = ensureInfo(root, state);
+    renderList(root, state);
+
+    if (download) {
+      download.hidden = !media;
+      if (media) download.title = kind(media) === 'direct' ? 'Télécharger le fichier' : 'Télécharger avec a-Shell';
+    }
+    actions.hidden = !media;
 
     if (state) {
-      if (!active) state.textContent = 'Aucun média détecté.';
+      if (!media) state.textContent = 'Aucun média détecté.';
       else {
-        const type = String(active.type || active.mediaType || 'média').toUpperCase();
-        const host = mediaUrl(active)?.hostname || '';
-        state.textContent = `${type} détecté${host ? ` • ${host}` : ''}`;
+        const url = mediaUrl(media);
+        const type = String(media.type || media.mediaType || 'média').toUpperCase();
+        state.textContent = `${sortedEntries().length} média${sortedEntries().length > 1 ? 's' : ''} détecté${sortedEntries().length > 1 ? 's' : ''} · sélection : ${type} · ${url?.hostname || ''}`;
       }
     }
+
+    if (!media) info.hidden = true;
     return true;
+  }
+
+  function bindUi() {
+    const root = document.querySelector('#dlstream-controls')?.shadowRoot;
+    if (!root || root === boundRoot?.__dlstreamBoundRoot) return;
+    syncUi();
+    if (root.__dlstreamSmartBound) return;
+    root.__dlstreamSmartBound = true;
+
+    root.addEventListener('click', (event) => {
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const download = path.find((node) => node?.id === 'download');
+      const mediaRow = path.find((node) => node?.dataset?.mediaKey);
+      const infoButton = path.find((node) => node?.id === 'ashellInfoButton');
+
+      if (mediaRow) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        activeKey = mediaRow.dataset.mediaKey;
+        publishActive();
+        syncUi();
+        return;
+      }
+
+      if (infoButton) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const panel = root.querySelector('#ashellInfoPanel');
+        if (panel) panel.hidden = !panel.hidden;
+        return;
+      }
+
+      if (!download) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      try { smartDownload(activeMedia()); }
+      catch (error) { alert(error?.message || String(error)); }
+    }, true);
   }
 
   function wrapDlStream() {
@@ -115,21 +285,19 @@
     const originalExposeCandidates = api.exposeCandidates?.bind(api);
     const originalExposeMedia = api.exposeMedia?.bind(api);
 
-    const proxy = {
-      ...api,
-      exposeCandidates(list = []) {
-        addBatch(list, cfg.targetUrl);
-        return originalExposeCandidates?.(list);
-      },
-      exposeMedia(media = {}) {
-        if (media) addBatch([media], cfg.targetUrl);
-        return originalExposeMedia?.(media);
-      },
-      __candidateObserverWrapped: true,
-    };
-
     try {
-      window.DlStream = proxy;
+      window.DlStream = {
+        ...api,
+        exposeCandidates(list = []) {
+          addBatch(list, cfg.targetUrl);
+          return originalExposeCandidates?.(list);
+        },
+        exposeMedia(media = {}) {
+          if (media) addBatch([media], cfg.targetUrl);
+          return originalExposeMedia?.(media);
+        },
+        __candidateObserverWrapped: true,
+      };
       wrapped = true;
       window.DlStreamMediaDetector?.scan?.();
     } catch (_) {}
@@ -146,9 +314,8 @@
 
   setInterval(() => {
     wrapDlStream();
+    bindUi();
     syncUi();
-    if (wrapped) {
-      try { window.DlStreamMediaDetector?.scan?.(); } catch (_) {}
-    }
+    try { window.DlStreamMediaDetector?.scan?.(); } catch (_) {}
   }, 300);
 })();
