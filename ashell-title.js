@@ -162,11 +162,9 @@
     return `cd ~/Documents\nffmpeg -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
   }
 
-  function shortcutUrl(command) {
+  function shortcutUrl() {
     const url = new URL('shortcuts://run-shortcut');
     url.searchParams.set('name', SHORTCUT_NAME);
-    url.searchParams.set('input', 'text');
-    url.searchParams.set('text', command);
     return url.href;
   }
 
@@ -204,7 +202,7 @@
     const launch = root.querySelector('#openAShell');
     if (launch) {
       launch.textContent = 'Lancer avec a-Shell';
-      launch.title = `Exécuter le raccourci « ${SHORTCUT_NAME} » avec la commande ffmpeg`;
+      launch.title = `Copier la commande puis exécuter le raccourci « ${SHORTCUT_NAME} »`;
     }
 
     const copyButton = root.querySelector('#copyAShellCommand');
@@ -246,8 +244,14 @@
         return;
       }
 
-      copySync(command);
-      location.href = shortcutUrl(command);
+      if (!copySync(command)) {
+        const ok = await copy(command);
+        if (!ok) {
+          alert('Impossible de copier la commande dans le presse-papiers. Utilise « Copier commande » puis lance le raccourci manuellement.');
+          return;
+        }
+      }
+      location.href = shortcutUrl();
     }, true);
   }
 
