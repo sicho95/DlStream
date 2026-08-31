@@ -6,7 +6,6 @@
   const HLS_RE = /\.m3u8(?:$|[?#])/i;
   const DASH_RE = /\.mpd(?:$|[?#])/i;
   const MAX_SCRIPT_TEXT = 1_000_000;
-  const publishedUrls = new Set();
   let scanTimer = null;
 
   function normalize(value, base = cfg.targetUrl) {
@@ -18,6 +17,7 @@
   }
 
   function rootTrusted() {
+    if (window.DlStreamTrust?.rootTrusted) return Boolean(window.DlStreamTrust.rootTrusted());
     try {
       const roots = JSON.parse(localStorage.getItem('dlstream.trustedRoots') || '[]');
       const host = String(cfg.rootHost || '').toLowerCase();
@@ -50,12 +50,14 @@
     if (!url) return;
     const type = mediaType(url, options.mime);
     if (!type) return;
-    const existing = list.find((item) => item.url.href === url.href);
+    window.DlStreamTrust?.learnHost?.(url.hostname);
+    const existing = list.find((item) => item.url.href === url.href && item.type === type);
     const candidate = {
       url,
       type,
       score,
       source,
+      mime: options.mime || '',
       filename: options.filename || filenameFromUrl(url, type),
       title: options.title || document.title || 'Vidéo',
     };
@@ -130,10 +132,16 @@
     });
   }
 
-  function publish(candidate) {
-    if (!candidate || !window.DlStream?.exposeMedia || publishedUrls.has(candidate.url.href)) return;
-    publishedUrls.add(candidate.url.href);
-    window.DlStream.exposeMedia({
+  function collectNetwork(list) {
+    const items = Array.isArray(window.__DLSTREAM_NETWORK_CANDIDATES__) ? window.__DLSTREAM_NETWORK_CANDIDATES__ : [];
+    for (const item of items) addCandidate(list, item.url, Number(item.score || 880), item.source || 'network', {
+      mime: item.mime || '',
+      title: item.title || document.title || 'Vidéo',
+    });
+  }
+
+  function serialize(candidate) {
+    return {
       title: candidate.title,
       type: candidate.type,
       mediaType: candidate.type,
@@ -142,11 +150,16 @@
       manifestUrl: candidate.type === 'hls' || candidate.type === 'dash' ? candidate.url.href : null,
       filename: candidate.filename,
       detectedBy: candidate.source,
-    });
+      score: candidate.score,
+      mime: candidate.mime || '',
+    };
   }
 
   function scan() {
-    if (!rootTrusted()) return;
+    if (!rootTrusted()) {
+      window.DlStream?.clearMedia?.();
+      return;
+    }
     const candidates = [];
     collectExplicit(candidates);
     collectElements(candidates);
@@ -154,7 +167,9 @@
     collectMetadata(candidates);
     collectJson(candidates);
     collectInline(candidates);
-    candidates.sort((a, b) => b.score - a.score).slice(0, 30).forEach(publish);
+    collectNetwork(candidates);
+    const batch = candidates.sort((a, b) => b.score - a.score).slice(0, 40).map(serialize);
+    window.DlStream?.exposeCandidates?.(batch);
   }
 
   function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scan, 250); }
