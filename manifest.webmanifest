@@ -1,12 +1,12 @@
 {
-  "name": "SichoStream",
-  "short_name": "SichoStream",
-  "description": "PWA personnelle pour naviguer sur une plateforme vidéo, lire via AirPlay et lancer un téléchargement réel.",
+  "name": "DlStream",
+  "short_name": "DlStream",
+  "description": "PWA personnelle plein écran pour une plateforme vidéo et téléchargement hors ligne.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#090d16",
-  "theme_color": "#111827",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
