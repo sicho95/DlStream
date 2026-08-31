@@ -2,6 +2,19 @@
   const cfg = window.__DLSTREAM__;
   if (!cfg || cfg.isNested) return;
 
+  function ensureFolderModeLoaded() {
+    if (window.DlStreamFolderMode || document.querySelector('script[data-dlstream-folder-mode]')) return;
+    const script = document.createElement('script');
+    script.src = new URL('./folder-mode.js?v=14', cfg.appEntry).href;
+    script.dataset.dlstreamFolderMode = '1';
+    script.addEventListener('load', () => {
+      window.dispatchEvent(new CustomEvent('dlstream-folder-progress', { detail: window.DlStreamFolderMode?.getState?.() || null }));
+    });
+    document.head.appendChild(script);
+  }
+
+  ensureFolderModeLoaded();
+
   function formatBytes(value) {
     const bytes = Number(value || 0);
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 o';
@@ -209,6 +222,7 @@
   }
 
   function renderFolder(folderState = window.DlStreamFolderMode?.getState?.()) {
+    ensureFolderModeLoaded();
     const host = document.querySelector('#dlstream-controls');
     const root = host?.shadowRoot;
     if (!root) return false;
