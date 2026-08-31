@@ -1,14 +1,21 @@
 (() => {
+  const SHORTCUT_NAME = 'DlStream a-Shell';
+  const TITLE_KEY_PREFIX = 'dlstream.contentTitle.';
   let boundRoot = null;
 
   function text(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
+  function config() {
+    return window.__DLSTREAM__ || {};
+  }
+
   function usefulTitle(value) {
     const title = text(value);
     if (title.length < 2 || title.length > 180) return '';
     if (/^(video|vidéo|player|stream|watch|lecture|home|accueil|dlstream)$/i.test(title)) return '';
+    if (/(vrodaz|vromov|ofbax|swift\s*-?\s*streamlined|streamlined\s*-?\s*safe)/i.test(title)) return '';
     return title;
   }
 
@@ -75,10 +82,44 @@
     }
 
     const htmlTitle = usefulTitle(document.title);
-    if (htmlTitle && !/^dlstream$/i.test(htmlTitle)) return htmlTitle;
+    if (htmlTitle) return htmlTitle;
+    return '';
+  }
 
-    const mediaTitle = usefulTitle(window.__DLSTREAM_ACTIVE_MEDIA__?.title);
-    return mediaTitle || '';
+  function platformPage() {
+    const cfg = config();
+    try {
+      const host = new URL(cfg.targetUrl || location.href).hostname.toLowerCase();
+      const root = String(cfg.rootHost || '').toLowerCase();
+      return Boolean(root) && (host === root || host.endsWith(`.${root}`));
+    } catch {
+      return false;
+    }
+  }
+
+  function titleStorageKey() {
+    return `${TITLE_KEY_PREFIX}${String(config().rootHost || 'default').toLowerCase()}`;
+  }
+
+  function rememberPlatformTitle() {
+    if (!platformPage()) return;
+    const title = titleFromPage();
+    if (!title) return;
+    try { localStorage.setItem(titleStorageKey(), title); } catch (_) {}
+  }
+
+  function rememberedTitle() {
+    try { return usefulTitle(localStorage.getItem(titleStorageKey()) || ''); }
+    catch { return ''; }
+  }
+
+  function mediaTitle() {
+    return usefulTitle(window.__DLSTREAM_ACTIVE_MEDIA__?.title || '');
+  }
+
+  function outputTitle() {
+    rememberPlatformTitle();
+    return titleFromPage() || rememberedTitle() || mediaTitle();
   }
 
   function safeFilename(value) {
@@ -116,10 +157,17 @@
     const url = mediaUrl();
     if (!url) throw new Error('Aucun média actif pour a-Shell.');
 
-    const rawTitle = titleFromPage();
-    const title = safeFilename(rawTitle);
+    const title = safeFilename(outputTitle());
     const output = `${title || `video-${timestamp()}`}.mp4`;
-    return `ffmpeg -y -i ${shellQuote(url.href)} -c copy ~/Documents/${shellQuote(output)}`;
+    return `cd ~/Documents\nffmpeg -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
+  }
+
+  function shortcutUrl(command) {
+    const url = new URL('shortcuts://run-shortcut');
+    url.searchParams.set('name', SHORTCUT_NAME);
+    url.searchParams.set('input', 'text');
+    url.searchParams.set('text', command);
+    return url.href;
   }
 
   function copySync(value) {
@@ -146,9 +194,32 @@
     }
   }
 
+  function simplifyUi(root) {
+    root.querySelector('#download')?.remove();
+    root.querySelector('#openVlc')?.remove();
+    root.querySelector('#copyMediaUrl')?.remove();
+    root.querySelector('#offlineJobPanel')?.remove();
+    root.querySelector('#folderModePanel')?.remove();
+
+    const launch = root.querySelector('#openAShell');
+    if (launch) {
+      launch.textContent = 'Lancer avec a-Shell';
+      launch.title = `Exécuter le raccourci « ${SHORTCUT_NAME} » avec la commande ffmpeg`;
+    }
+
+    const copyButton = root.querySelector('#copyAShellCommand');
+    if (copyButton) {
+      copyButton.textContent = 'Copier commande';
+      copyButton.title = 'Copier les deux commandes a-Shell';
+    }
+  }
+
   function bind() {
+    rememberPlatformTitle();
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
-    if (!root || root === boundRoot) return;
+    if (!root) return;
+    simplifyUi(root);
+    if (root === boundRoot) return;
     boundRoot = root;
 
     root.addEventListener('click', async (event) => {
@@ -176,10 +247,17 @@
       }
 
       copySync(command);
-      location.href = 'ashell://';
+      location.href = shortcutUrl(command);
     }, true);
   }
 
-  window.DlStreamAShell = Object.freeze({ buildCommand, titleFromPage });
+  window.DlStreamAShell = Object.freeze({
+    buildCommand,
+    shortcutUrl,
+    titleFromPage,
+    rememberedTitle,
+    shortcutName: SHORTCUT_NAME,
+  });
+
   setInterval(bind, 200);
 })();
