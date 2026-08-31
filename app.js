@@ -198,7 +198,7 @@ function rewriteAllowedIframes(html, targetUrl, depth) {
 function transformHtml(html, targetUrl) {
   const target = new URL(targetUrl);
   const depth = getDepth();
-  const runtimeUrl = new URL('./browser-runtime.js', appEntryUrl()).href;
+  const runtimeUrl = new URL('./browser-runtime-v2.js', appEntryUrl()).href;
   const detectorUrl = new URL('./media-detector.js', appEntryUrl()).href;
   const downloaderUrl = new URL('./offline-downloader.js', appEntryUrl()).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
