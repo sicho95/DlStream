@@ -186,9 +186,8 @@
   }
 
   function shortcutUrl() {
-    const url = new URL('shortcuts://run-shortcut');
-    url.searchParams.set('name', SHORTCUT_NAME);
-    return url.href;
+    // Utiliser %20 explicitement : l’app Raccourcis ne traduit pas toujours '+' en espace pour ce schéma URL.
+    return `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}`;
   }
 
   function copySync(value) {
