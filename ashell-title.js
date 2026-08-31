@@ -244,7 +244,7 @@
 
     root.addEventListener('click', async (event) => {
       const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-      const button = path.find((node) => ['download', 'openAShell', 'copyAShellCommand'].includes(node?.id));
+      const button = path.find((node) => ['openAShell', 'copyAShellCommand'].includes(node?.id));
       if (!button) return;
 
       event.preventDefault();
