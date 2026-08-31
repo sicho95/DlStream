@@ -119,22 +119,29 @@
     return `${type} • ${state}${url ? ` • ${url.hostname}` : ''}`;
   }
 
+  function copyTextSync(text) {
+    if (!text) return false;
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    try { area.setSelectionRange(0, area.value.length); } catch (_) {}
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    area.remove();
+    return ok;
+  }
+
   async function copyText(text) {
     if (!text) return false;
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch (_) {
-      const area = document.createElement('textarea');
-      area.value = text;
-      area.setAttribute('readonly', '');
-      area.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
-      document.body.appendChild(area);
-      area.select();
-      let ok = false;
-      try { ok = document.execCommand('copy'); } catch (_) {}
-      area.remove();
-      return ok;
+      return copyTextSync(text);
     }
   }
 
@@ -173,7 +180,7 @@
     location.href = `vlc://${url.href}`;
   }
 
-  async function openInAShell(button) {
+  function openInAShell(button) {
     let command;
     try {
       command = buildAShellCommand();
@@ -182,19 +189,32 @@
       return;
     }
 
-    const ok = await copyText(command);
-    if (!ok) {
-      alert('Impossible de copier la commande a-Shell dans le presse-papiers.');
+    const copied = copyTextSync(command);
+    button.textContent = copied ? 'Commande copiée' : 'Ouvre a-Shell';
+    button.title = copied
+      ? 'Commande copiée. Colle-la dans a-Shell puis valide.'
+      : 'a-Shell va s’ouvrir. Utilise « Copier commande » si le presse-papiers n’a pas été rempli.';
+
+    const link = document.createElement('a');
+    link.href = 'ashell://';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  async function copyAShellCommand(button) {
+    let command;
+    try {
+      command = buildAShellCommand();
+    } catch (error) {
+      alert(error?.message || String(error));
       return;
     }
-
+    const ok = await copyText(command);
     const previous = button.textContent;
-    button.textContent = 'Commande copiée';
-    button.title = 'Colle la commande dans a-Shell puis valide.';
-    setTimeout(() => {
-      button.textContent = previous;
-      location.href = 'ashell://';
-    }, 350);
+    button.textContent = ok ? 'Commande copiée' : 'Échec copie';
+    setTimeout(() => { button.textContent = previous; }, 1200);
   }
 
   async function copyActiveUrl(button) {
@@ -244,6 +264,14 @@
       ashell.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
       ashell.addEventListener('click', () => openInAShell(ashell));
 
+      const copyAShell = document.createElement('button');
+      copyAShell.id = 'copyAShellCommand';
+      copyAShell.type = 'button';
+      copyAShell.textContent = 'Copier commande';
+      copyAShell.title = 'Copier uniquement la commande ffmpeg pour a-Shell';
+      copyAShell.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
+      copyAShell.addEventListener('click', () => copyAShellCommand(copyAShell));
+
       const vlc = document.createElement('button');
       vlc.id = 'openVlc';
       vlc.type = 'button';
@@ -258,7 +286,7 @@
       copy.style.cssText = 'pointer-events:auto;min-height:38px;border:1px solid #44444a;border-radius:10px;background:#2b2b30;color:#fff;padding:7px 12px';
       copy.addEventListener('click', () => copyActiveUrl(copy));
 
-      actions.append(ashell, vlc, copy);
+      actions.append(ashell, copyAShell, vlc, copy);
       state?.parentElement?.appendChild(actions);
     }
     return actions;
