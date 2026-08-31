@@ -33,14 +33,56 @@ function getRequestedPlatformUrl() {
   return normalizeUrl(q) || getStoredPlatformUrl();
 }
 
+function getAllowedDomains() {
+  const raw = localStorage.getItem('dlstream.allowedDomains') || '';
+  return [...new Set(raw.split(/[\n,;\s]+/).map((v) => v.trim().toLowerCase()).filter(Boolean))];
+}
+
+function domainIsAllowed(hostname, targetHostname) {
+  const host = String(hostname || '').toLowerCase();
+  const target = String(targetHostname || '').toLowerCase();
+  if (!host) return false;
+
+  // Toujours autoriser le domaine de la plateforme actuellement configurée.
+  if (host === target || host.endsWith(`.${target}`)) return true;
+
+  return getAllowedDomains().some((entry) => {
+    const allowed = entry.replace(/^https?:\/\//, '').split('/')[0].replace(/^\*\./, '');
+    return host === allowed || host.endsWith(`.${allowed}`);
+  });
+}
+
 function buildProxyUrl(targetUrl) {
   const u = new URL(PROXY_BASE);
   u.searchParams.set('url', targetUrl);
   return u.href;
 }
 
+function buildAppUrl(targetUrl, appEntry) {
+  const u = new URL(appEntry);
+  u.searchParams.set('url', targetUrl);
+  return u.href;
+}
+
 function escapeInlineJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function rewriteAllowedIframes(html, target, appEntry) {
+  return String(html).replace(
+    /<iframe\b([^>]*?)\bsrc\s*=\s*(["'])(.*?)\2([^>]*)>/gi,
+    (full, before, quote, rawSrc, after) => {
+      try {
+        const frameUrl = new URL(rawSrc, target.href);
+        if (!['http:', 'https:'].includes(frameUrl.protocol)) return full;
+        if (!domainIsAllowed(frameUrl.hostname, target.hostname)) return full;
+        const nested = buildAppUrl(frameUrl.href, appEntry);
+        return `<iframe${before}src=${quote}${nested.replace(/&/g, '&amp;')}${quote}${after}>`;
+      } catch {
+        return full;
+      }
+    },
+  );
 }
 
 function transformHtml(html, targetUrl) {
@@ -55,15 +97,19 @@ function transformHtml(html, targetUrl) {
 
   let out = String(html || '');
 
-  // Supprimer les politiques HTML qui pourraient bloquer le runtime local.
+  // Supprimer uniquement les politiques HTML qui empêcheraient le runtime local.
   out = out.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
   out = out.replace(/<base\b[^>]*>/gi, '');
+
+  // Inspecter récursivement uniquement les iframes appartenant aux domaines explicitement autorisés.
+  out = rewriteAllowedIframes(out, target, appEntry.href);
 
   const config = {
     targetUrl: target.href,
     upstreamOrigin: target.origin,
     appEntry: appEntry.href,
     proxyBase: PROXY_BASE,
+    allowedDomains: getAllowedDomains(),
   };
 
   const injection = `\n<base href="${target.href.replace(/"/g, '&quot;')}">\n` +
@@ -110,9 +156,7 @@ async function loadPlatform(targetUrl) {
       redirect: 'follow',
     });
 
-    if (!response.ok) {
-      throw new Error(`Proxy HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
 
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('text/html')) {
