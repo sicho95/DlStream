@@ -4,7 +4,7 @@ const MAX_RECURSION_DEPTH = 4;
 const PAGE_CACHE_NAME = 'dlstream-pages-v1';
 const MAX_PAGE_CACHE_AGE_MS = 5 * 60 * 1000;
 const TRANSIENT_PROXY_STATUS = new Set([500, 502, 503, 504]);
-const DLSTREAM_BUILD = '20';
+const DLSTREAM_BUILD = '25';
 
 const bootMessage = document.querySelector('#bootMessage');
 const bootError = document.querySelector('#bootError');
@@ -291,7 +291,6 @@ function transformHtml(html, targetUrl, { fromCache = false } = {}) {
   const runtimeUrl = new URL(`./browser-runtime.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
   const detectorUrl = new URL(`./media-detector.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
   const downloaderUrl = new URL(`./offline-downloader.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
-  const offlineUiUrl = new URL(`./offline-ui.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
 
   if (rootIsTrusted()) learnHosts(discoverSourceHosts(html, target.href));
@@ -324,7 +323,6 @@ function transformHtml(html, targetUrl, { fromCache = false } = {}) {
     `<script>window.__DLSTREAM__=${escapeInlineJson(config)};<\/script>\n` +
     `<script src="${runtimeUrl}"><\/script>\n` +
     `<script src="${downloaderUrl}"><\/script>\n` +
-    `<script src="${offlineUiUrl}"><\/script>\n` +
     `<script src="${detectorUrl}"><\/script>\n`;
 
   if (/<head\b[^>]*>/i.test(out)) out = out.replace(/<head\b([^>]*)>/i, `<head$1>${injection}`);
