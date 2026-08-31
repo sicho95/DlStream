@@ -210,4 +210,13 @@
   }
 
   window.DlStreamOffline = Object.freeze({ download, analyze, hostAllowed, learnDomains });
+
+  // Charger l'observateur après le runtime et avant le détecteur de médias.
+  // Il conserve la flèche visible dès qu'un candidat existe et affiche le diagnostic exact.
+  if (!cfg.isNested && !document.querySelector('script[data-dlstream-candidate-observer]')) {
+    const script = document.createElement('script');
+    script.src = new URL('./candidate-observer.js', cfg.appEntry).href;
+    script.dataset.dlstreamCandidateObserver = '1';
+    document.head.appendChild(script);
+  }
 })();
