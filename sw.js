@@ -1,9 +1,10 @@
-const CACHE = 'dlstream-static-v3';
+const CACHE = 'dlstream-static-v4';
 const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './browser-runtime.js',
   './manifest.webmanifest',
   './icon.svg'
 ];
@@ -28,7 +29,7 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
+      fetch('./index.html', { cache: 'no-store' })
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE).then((cache) => cache.put('./index.html', copy));
