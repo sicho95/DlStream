@@ -50,11 +50,12 @@ function transformHtml(html, targetUrl) {
   appEntry.hash = '';
 
   const runtimeUrl = new URL('./browser-runtime.js', appEntry).href;
+  const detectorUrl = new URL('./media-detector.js', appEntry).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntry).href;
 
   let out = String(html || '');
 
-  // Supprimer les politiques HTML qui pourraient bloquer notre runtime local.
+  // Supprimer les politiques HTML qui pourraient bloquer le runtime local.
   out = out.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
   out = out.replace(/<base\b[^>]*>/gi, '');
 
@@ -69,7 +70,8 @@ function transformHtml(html, targetUrl) {
     `<meta name="apple-mobile-web-app-capable" content="yes">\n` +
     `<link rel="manifest" href="${manifestUrl}">\n` +
     `<script>window.__DLSTREAM__=${escapeInlineJson(config)};<\/script>\n` +
-    `<script src="${runtimeUrl}"><\/script>\n`;
+    `<script src="${runtimeUrl}"><\/script>\n` +
+    `<script src="${detectorUrl}"><\/script>\n`;
 
   if (/<head\b[^>]*>/i.test(out)) {
     out = out.replace(/<head\b([^>]*)>/i, `<head$1>${injection}`);
