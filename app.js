@@ -4,6 +4,7 @@ const MAX_RECURSION_DEPTH = 4;
 const PAGE_CACHE_NAME = 'dlstream-pages-v1';
 const MAX_PAGE_CACHE_AGE_MS = 5 * 60 * 1000;
 const TRANSIENT_PROXY_STATUS = new Set([500, 502, 503, 504]);
+const DLSTREAM_BUILD = '14';
 
 const bootMessage = document.querySelector('#bootMessage');
 const bootError = document.querySelector('#bootError');
@@ -266,7 +267,7 @@ async function fetchPageHtml(targetUrl) {
 }
 
 function escapeInlineJson(value) {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
+  return JSON.stringify(value).replace(/</g, '\u003c');
 }
 
 function rewriteAllowedIframes(html, targetUrl, depth) {
@@ -287,10 +288,10 @@ function rewriteAllowedIframes(html, targetUrl, depth) {
 function transformHtml(html, targetUrl, { fromCache = false } = {}) {
   const target = new URL(targetUrl);
   const depth = getDepth();
-  const runtimeUrl = new URL('./browser-runtime.js?v=13', appEntryUrl()).href;
-  const detectorUrl = new URL('./media-detector.js?v=13', appEntryUrl()).href;
-  const downloaderUrl = new URL('./offline-downloader.js?v=13', appEntryUrl()).href;
-  const offlineUiUrl = new URL('./offline-ui.js?v=13', appEntryUrl()).href;
+  const runtimeUrl = new URL(`./browser-runtime.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
+  const detectorUrl = new URL(`./media-detector.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
+  const downloaderUrl = new URL(`./offline-downloader.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
+  const offlineUiUrl = new URL(`./offline-ui.js?v=${DLSTREAM_BUILD}`, appEntryUrl()).href;
   const manifestUrl = new URL('./manifest.webmanifest', appEntryUrl()).href;
 
   if (rootIsTrusted()) learnHosts(discoverSourceHosts(html, target.href));
@@ -314,6 +315,7 @@ function transformHtml(html, targetUrl, { fromCache = false } = {}) {
     learnedDomains: getLearnedDomains(),
     ignoredDomains: getIgnoredDomains(),
     pageFromCache: Boolean(fromCache),
+    build: DLSTREAM_BUILD,
   };
 
   const injection = `\n<base href="${target.href.replace(/"/g, '&quot;')}">\n` +
@@ -381,7 +383,8 @@ window.DlStreamConfig = Object.freeze({
   domainIsAllowed,
   learnHosts,
   buildAppUrl,
+  build: DLSTREAM_BUILD,
 });
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register(`./sw.js?v=${DLSTREAM_BUILD}`).catch(() => {});
 loadPlatform(getRequestedPlatformUrl());
