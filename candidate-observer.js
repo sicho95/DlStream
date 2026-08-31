@@ -175,7 +175,7 @@
 
     const title = safeFileStem(active?.media?.title || document.title || 'video');
     const output = `${title}-${timestampForFilename()}.mp4`;
-    return `cd && mkdir -p DlStream && cd DlStream && ffmpeg -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
+    return `ffmpeg -y -i ${shellQuote(url.href)} -c copy ~/Documents/DlStream/${output}`;
   }
 
   function openInVlc() {
