@@ -147,11 +147,11 @@
 
     if (mediaKind(media, url) === 'direct') {
       const output = `${base}.${directExtension(media, url)}`;
-      return `cd ~/Documents\nclear\ncurl -L --fail --retry 2 -o ${quote(output)} ${quote(url.href)}`;
+      return `cd ~/Documents\nclear\ncurl -L --fail --retry 2 --progress-bar -o ${quote(output)} ${quote(url.href)}`;
     }
 
     const output = `${base}.mp4`;
-    return `cd ~/Documents\nclear\nffmpeg -hide_banner -loglevel warning -nostats -stats_period 3 -progress pipe:1 -http_persistent 1 -http_multiple 1 -y -i ${quote(url.href)} -c copy ${quote(output)}`;
+    return `cd ~/Documents\nclear\nffmpeg -hide_banner -loglevel error -stats -stats_period 3 -http_persistent 1 -http_multiple 1 -y -i ${quote(url.href)} -c copy ${quote(output)}`;
   }
 
   function shortcutUrl() {
