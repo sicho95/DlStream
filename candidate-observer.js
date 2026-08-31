@@ -5,7 +5,6 @@
   const candidates = new Map();
   let activeKey = '';
   let wrapped = false;
-  let boundRoot = null;
 
   function normalize(value, base = cfg.targetUrl) {
     try {
@@ -44,8 +43,8 @@
     const type = String(media?.type || media?.mediaType || '').toLowerCase();
     if (type === 'direct') return 4000;
     if (type === 'hls') return 3000;
-    if (type === 'dash') return 2500;
-    if (type === 'stream') return 2000;
+    if (type === 'dash') return 2600;
+    if (type === 'stream') return 2200;
     return 0;
   }
 
@@ -58,8 +57,7 @@
   function activeMedia() {
     const selected = candidates.get(activeKey);
     if (selected) return selected;
-    const first = sortedEntries()[0];
-    return first?.[1] || null;
+    return sortedEntries()[0]?.[1] || null;
   }
 
   function publishActive() {
@@ -84,8 +82,7 @@
   }
 
   function kind(media) {
-    const type = String(media?.type || media?.mediaType || '').toLowerCase();
-    return type === 'direct' ? 'direct' : 'stream';
+    return String(media?.type || media?.mediaType || '').toLowerCase() === 'direct' ? 'direct' : 'stream';
   }
 
   function filenameFor(media) {
@@ -95,25 +92,8 @@
     catch { return 'video'; }
   }
 
-  function triggerDirectDownload(media) {
-    const url = mediaUrl(media);
-    if (!url) throw new Error('URL de fichier direct invalide.');
-    const anchor = document.createElement('a');
-    anchor.href = url.href;
-    anchor.download = filenameFor(media);
-    anchor.rel = 'noopener';
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-  }
-
   function smartDownload(media) {
     if (!media) return;
-    if (kind(media) === 'direct') {
-      triggerDirectDownload(media);
-      return;
-    }
     if (!window.DlStreamAShell?.launch) throw new Error('Le module a-Shell n’est pas disponible.');
     window.DlStreamAShell.launch(media);
   }
@@ -172,8 +152,8 @@
       <div>2. Dans Raccourcis, créer un raccourci nommé exactement <strong>DlStream a-Shell</strong>.</div>
       <div>3. Ajouter <strong>Obtenir le presse-papiers</strong>.</div>
       <div>4. Ajouter l’action a-Shell <strong>Exécuter</strong> et lui donner la variable <strong>Presse-papiers</strong>.</div>
-      <div>5. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que ffmpeg soit disponible.</div>
-      <div style="margin-top:7px;color:#a8a8b0">La flèche télécharge directement les fichiers complets. Pour HLS/DASH/streams, DlStream copie la commande puis lance ce raccourci.</div>`;
+      <div>5. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que curl et ffmpeg soient disponibles.</div>
+      <div style="margin-top:7px;color:#a8a8b0">La flèche utilise toujours a-Shell : <strong>curl</strong> pour un fichier complet et <strong>ffmpeg</strong> pour un stream à reconstruire. Le fichier final est enregistré dans <strong>~/Documents</strong>, visible dans <strong>Fichiers → a-Shell</strong>.</div>`;
     state?.parentElement?.appendChild(panel);
     return panel;
   }
@@ -201,9 +181,20 @@
       const selected = key === activeKey;
       row.style.cssText = `pointer-events:auto;text-align:left;width:100%;border:1px solid ${selected ? '#fff' : '#34343a'};border-radius:9px;background:${selected ? '#2a2a30' : '#18181b'};color:#fff;padding:7px 8px`;
 
+      const top = document.createElement('div');
+      top.style.cssText = 'font-size:11px;font-weight:700';
       const type = String(media.type || media.mediaType || 'média').toUpperCase();
-      const name = filenameFor(media);
-      row.innerHTML = `<div style="font-size:11px;font-weight:700">${type} · ${kind(media) === 'direct' ? 'fichier direct' : 'à reconstruire'}</div><div style="font-size:10px;color:#b5b5bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div><div style="font-size:9px;color:#85858d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${url?.hostname || ''}</div>`;
+      top.textContent = `${type} · ${kind(media) === 'direct' ? 'fichier complet · curl' : 'à reconstruire · ffmpeg'}`;
+
+      const name = document.createElement('div');
+      name.style.cssText = 'font-size:10px;color:#b5b5bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      name.textContent = filenameFor(media);
+
+      const host = document.createElement('div');
+      host.style.cssText = 'font-size:9px;color:#85858d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      host.textContent = url?.hostname || '';
+
+      row.append(top, name, host);
       list.appendChild(row);
     }
   }
@@ -211,7 +202,6 @@
   function syncUi() {
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
     if (!root) return false;
-    boundRoot = root;
 
     const media = activeMedia();
     const download = root.querySelector('#download');
@@ -222,16 +212,17 @@
 
     if (download) {
       download.hidden = !media;
-      if (media) download.title = kind(media) === 'direct' ? 'Télécharger le fichier' : 'Télécharger avec a-Shell';
+      if (media) download.title = kind(media) === 'direct' ? 'Télécharger avec a-Shell (curl)' : 'Télécharger avec a-Shell (ffmpeg)';
     }
     actions.hidden = !media;
 
     if (state) {
+      const entries = sortedEntries();
       if (!media) state.textContent = 'Aucun média détecté.';
       else {
         const url = mediaUrl(media);
         const type = String(media.type || media.mediaType || 'média').toUpperCase();
-        state.textContent = `${sortedEntries().length} média${sortedEntries().length > 1 ? 's' : ''} détecté${sortedEntries().length > 1 ? 's' : ''} · sélection : ${type} · ${url?.hostname || ''}`;
+        state.textContent = `${entries.length} média${entries.length > 1 ? 's' : ''} détecté${entries.length > 1 ? 's' : ''} · sélection : ${type} · ${url?.hostname || ''}`;
       }
     }
 
@@ -241,7 +232,7 @@
 
   function bindUi() {
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
-    if (!root || root === boundRoot?.__dlstreamBoundRoot) return;
+    if (!root) return;
     syncUi();
     if (root.__dlstreamSmartBound) return;
     root.__dlstreamSmartBound = true;
