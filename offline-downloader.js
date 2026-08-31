@@ -1,6 +1,6 @@
 (() => {
   const cfg = window.__DLSTREAM__;
-  if (!cfg) return;
+  if (!cfg?.targetUrl || !cfg?.appEntry) return;
 
   function normalize(value, base = cfg.targetUrl) {
     try {
@@ -24,22 +24,29 @@
   }
 
   function trustedRoot() {
+    if (window.DlStreamTrust?.rootTrusted) return Boolean(window.DlStreamTrust.rootTrusted());
     const host = String(cfg.rootHost || '').toLowerCase();
     return readList('dlstream.trustedRoots').some((root) => host === root || host.endsWith(`.${root}`));
   }
 
   function learnedDomains() {
+    if (window.DlStreamTrust?.learnedDomains) return window.DlStreamTrust.learnedDomains();
     const map = readMap('dlstream.learnedDomains');
     return Array.isArray(map[cfg.rootHost]) ? map[cfg.rootHost].map(String).map((v) => v.toLowerCase()) : [];
   }
 
   function ignoredDomains() {
+    if (window.DlStreamTrust?.ignoredDomains) return window.DlStreamTrust.ignoredDomains();
     const map = readMap('dlstream.ignoredDomains');
     return Array.isArray(map[cfg.rootHost]) ? map[cfg.rootHost].map(String).map((v) => v.toLowerCase()) : [];
   }
 
   function learnDomains(domains = []) {
     if (!trustedRoot()) return;
+    if (window.DlStreamTrust?.learnHost) {
+      for (const host of domains) window.DlStreamTrust.learnHost(host);
+      return;
+    }
     const ignored = new Set(ignoredDomains());
     const current = new Set(learnedDomains());
     const root = String(cfg.rootHost || '').toLowerCase();
@@ -55,6 +62,7 @@
   }
 
   function hostAllowed(hostname) {
+    if (window.DlStreamTrust?.hostAllowed) return Boolean(window.DlStreamTrust.hostAllowed(hostname));
     const host = String(hostname || '').toLowerCase();
     if (!trustedRoot() || !host) return false;
     const root = String(cfg.rootHost || '').toLowerCase();
@@ -81,6 +89,35 @@
     return normalize(media.downloadUrl || media.manifestUrl || media.url);
   }
 
+  async function analyzeDirect(media, u) {
+    try {
+      const response = await fetch(u.href, {
+        method: 'HEAD',
+        mode: 'cors',
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const disposition = response.headers.get('content-disposition') || '';
+      const type = response.headers.get('content-type') || '';
+      return {
+        feasible: true,
+        type: 'direct',
+        mode: 'service-worker',
+        reason: disposition.toLowerCase().includes('attachment') ? 'Fichier direct avec téléchargement serveur.' : `Fichier direct${type ? ` (${type})` : ''}.`,
+      };
+    } catch (error) {
+      // Le lien direct reste exploitable en navigation : si le serveur envoie Content-Disposition,
+      // iOS téléchargera le fichier. Sans CORS il n’est simplement pas possible de vérifier cet en-tête ici.
+      return {
+        feasible: true,
+        type: 'direct',
+        mode: 'navigation',
+        reason: `Fichier direct détecté ; téléchargement géré par le serveur (${error?.message || 'en-têtes non lisibles'}).`,
+      };
+    }
+  }
+
   async function analyze(media = {}) {
     const u = mediaUrl(media);
     if (!u) return { feasible: false, reason: 'URL média invalide.', type: 'unknown' };
@@ -88,7 +125,7 @@
 
     const type = String(media.type || media.mediaType || '').toLowerCase();
     if (type === 'dash' || /\.mpd(?:$|[?#])/i.test(u.href)) {
-      return { feasible: false, type: 'dash', reason: 'DASH détecté : muxage audio/vidéo serveur requis.' };
+      return { feasible: false, type: 'dash', reason: 'DASH segmenté détecté : muxage audio/vidéo serveur requis.' };
     }
 
     if (type === 'hls' || /\.m3u8(?:$|[?#])/i.test(u.href)) {
@@ -100,20 +137,37 @@
         const data = await response.json();
         if (Array.isArray(data?.discoveredDomains)) learnDomains(data.discoveredDomains);
         return data?.feasible
-          ? { feasible: true, type: 'hls', format: data.format || 'ts', reason: data.reason || 'HLS recomposable.', segmentCount: data.segmentCount || 0 }
+          ? {
+              feasible: true,
+              type: 'hls',
+              format: data.format || 'ts',
+              reason: data.reason || 'HLS recomposable.',
+              segmentCount: data.segmentCount || 0,
+            }
           : { feasible: false, type: 'hls', reason: data?.reason || `Pré-contrôle HLS impossible (${response.status}).` };
       } catch (error) {
         return { feasible: false, type: 'hls', reason: error?.message || 'Pré-contrôle HLS impossible.' };
       }
     }
 
-    return { feasible: true, type: 'direct', reason: 'Fichier vidéo direct.' };
+    return analyzeDirect(media, u);
   }
 
-  function directDownload(media) {
+  function directDownload(media, check) {
     const u = mediaUrl(media);
     if (!u || !hostAllowed(u.hostname)) throw new Error('Fichier hors domaines autorisés pour cette racine.');
     const ext = (u.pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'mp4').toLowerCase();
+
+    if (check?.mode === 'navigation') {
+      const a = document.createElement('a');
+      a.href = u.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.download = filename(media.filename || media.title, ext);
+      a.click();
+      return;
+    }
+
     const endpoint = new URL('./__dlstream_direct_download__', cfg.appEntry);
     endpoint.searchParams.set('url', u.href);
     endpoint.searchParams.set('filename', filename(media.filename || media.title, ext));
@@ -131,11 +185,12 @@
     window.open(endpoint.href, '_blank', 'noopener');
   }
 
-  async function download(media = {}) {
-    const check = await analyze(media);
-    if (!check.feasible) throw new Error(check.reason || 'Ce média ne peut pas être assemblé localement.');
+  function download(media = {}) {
+    const check = media.downloadCheck;
+    if (!check?.feasible) throw new Error(check?.reason || 'Ce média n’a pas encore été validé pour le téléchargement.');
     if (check.type === 'hls') return hlsDownload(media);
-    return directDownload(media);
+    if (check.type === 'direct') return directDownload(media, check);
+    throw new Error(check.reason || 'Ce média ne peut pas être assemblé localement.');
   }
 
   window.DlStreamOffline = Object.freeze({ download, analyze, hostAllowed, learnDomains });
