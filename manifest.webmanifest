@@ -1,0 +1,13 @@
+{
+  "name": "SichoStream",
+  "short_name": "SichoStream",
+  "description": "PWA personnelle pour naviguer sur une plateforme vidéo, lire via AirPlay et lancer un téléchargement réel.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
