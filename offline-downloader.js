@@ -568,7 +568,7 @@
 
   if (!cfg.isNested && !document.querySelector('script[data-dlstream-candidate-observer]')) {
     const script = document.createElement('script');
-    script.src = new URL('./candidate-observer.js', cfg.appEntry).href;
+    script.src = new URL(`./candidate-observer.js?v=${cfg.build || '20'}`, cfg.appEntry).href;
     script.dataset.dlstreamCandidateObserver = '1';
     document.head.appendChild(script);
   }
