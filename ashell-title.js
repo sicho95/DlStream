@@ -182,7 +182,7 @@
     }
 
     const output = `${title.replace(/\.[a-z0-9]{2,5}$/i, '')}.mp4`;
-    return `cd ~/Documents\nffmpeg -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
+    return `cd ~/Documents\nffmpeg -hide_banner -loglevel warning -nostats -stats_period 3 -progress pipe:1 -http_persistent 1 -http_multiple 1 -y -i ${shellQuote(url.href)} -c copy ${shellQuote(output)}`;
   }
 
   function shortcutUrl() {
