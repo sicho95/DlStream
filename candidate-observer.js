@@ -29,7 +29,7 @@
     if (!url.pathname.startsWith(basePath)) return false;
     const relative = url.pathname.slice(basePath.length).toLowerCase();
     if (!relative) return true;
-    return /(?:^|\/)(?:index\.html|manifest(?:\.webmanifest|\.webm)?|sw\.js|app\.js|browser-runtime(?:-v2)?\.js|media-detector\.js|offline-downloader\.js|candidate-observer\.js|styles\.css|icon\.svg)$/i.test(relative)
+    return /(?:^|\/)(?:index\.html|manifest(?:\.webmanifest|\.webm)?|sw\.js|app\.js|browser-runtime(?:-v2)?\.js|media-detector\.js|offline-downloader\.js|candidate-observer\.js|offline-ui\.js|folder-mode\.js|styles\.css|icon\.svg)$/i.test(relative)
       || /\.(?:js|css|webmanifest|svg|html)$/i.test(relative);
   }
 
@@ -47,6 +47,12 @@
 
   function mediaUrl(media) {
     return normalize(media?.url || media?.downloadUrl || media?.manifestUrl, media?.sourcePage || cfg.targetUrl);
+  }
+
+  function publishActive() {
+    const media = active?.media ? { ...active.media, downloadCheck: active.check || null } : null;
+    window.__DLSTREAM_ACTIVE_MEDIA__ = media;
+    document.dispatchEvent(new CustomEvent('dlstream-active-media', { detail: media }));
   }
 
   function addBatch(list, sourcePage = cfg.targetUrl) {
@@ -72,6 +78,7 @@
 
     if (!entries.length) {
       active = null;
+      publishActive();
       syncUi();
       return;
     }
@@ -98,6 +105,7 @@
 
     if (run !== serial) return;
     active = bestFeasible || bestDetected;
+    publishActive();
     syncUi();
   }
 
@@ -152,11 +160,12 @@
 
     const check = active.check || await window.DlStreamOffline?.analyze?.(active.media);
     active.check = check || { feasible: false, reason: 'Analyse indisponible.' };
+    publishActive();
     syncUi();
 
     if (!active.check?.feasible) {
       const url = mediaUrl(active.media);
-      alert(`DlStream a bien détecté un média, mais le téléchargement n'est pas réalisable directement.\n\n${active.check?.reason || 'Cause inconnue.'}\n\nType : ${active.media.type || active.media.mediaType || 'inconnu'}\nURL : ${url?.href || ''}\n\nTu peux utiliser « VLC » ou « Copier URL » dans le menu DlStream.`);
+      alert(`DlStream a bien détecté un média, mais le téléchargement n'est pas réalisable directement.\n\n${active.check?.reason || 'Cause inconnue.'}\n\nType : ${active.media.type || active.media.mediaType || 'inconnu'}\nURL : ${url?.href || ''}\n\nTu peux utiliser « VLC », « Copier URL » ou le mode « Dossier temporaire » dans le menu DlStream.`);
       return;
     }
 
