@@ -5,7 +5,7 @@
   function ensureFolderModeLoaded() {
     if (window.DlStreamFolderMode || document.querySelector('script[data-dlstream-folder-mode]')) return;
     const script = document.createElement('script');
-    script.src = new URL('./folder-mode.js?v=14', cfg.appEntry).href;
+    script.src = new URL(`./folder-mode.js?v=${cfg.build || '15'}`, cfg.appEntry).href;
     script.dataset.dlstreamFolderMode = '1';
     script.addEventListener('load', () => {
       window.dispatchEvent(new CustomEvent('dlstream-folder-progress', { detail: window.DlStreamFolderMode?.getState?.() || null }));
@@ -61,7 +61,7 @@
         <div id="offlineBar" style="height:100%;width:0%;background:#fff;border-radius:999px;transition:width .2s ease"></div>
       </div>
       <div id="offlineMeta" style="font-size:10px;color:#8d8d96;margin-top:6px"></div>
-      <div id="offlineActions" style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px">
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px">
         <button id="offlinePause" type="button">Pause</button>
         <button id="offlineResume" type="button">Reprendre</button>
         <button id="offlineExport" type="button">Exporter</button>
@@ -102,33 +102,57 @@
     panel.innerHTML = `
       <div style="font-size:13px;font-weight:700;margin-bottom:5px">Dossier temporaire HLS</div>
       <div style="font-size:10px;color:#9b9ba4;line-height:1.45">
-        Mode expérimental pour les HLS bloqués par CORS. Choisir d’abord dans les réglages Safari/iOS un dossier temporaire comme destination des téléchargements.
+        Mode expérimental pour les HLS bloqués par CORS. Un pourcentage de file signifie « demandes lancées », pas « fichiers écrits ».
       </div>
       <div id="folderState" style="font-size:11px;color:#d0d0d6;line-height:1.45;margin-top:8px"></div>
       <div style="height:7px;background:#34343a;border-radius:999px;overflow:hidden;margin-top:8px">
         <div id="folderBar" style="height:100%;width:0%;background:#fff;border-radius:999px;transition:width .2s ease"></div>
       </div>
       <div id="folderMeta" style="font-size:10px;color:#8d8d96;margin-top:6px"></div>
-      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">1. Récupérer le manifeste</div>
+
+      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">1. Manifeste</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
-        <button id="folderOpenManifest" type="button">Ouvrir .m3u8</button>
+        <button id="folderOpenManifest" type="button">Lire le flux</button>
         <button id="folderPickManifest" type="button">Choisir .m3u8</button>
       </div>
-      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">2. Tester puis lancer les segments</div>
+
+      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">2. Test réel d’un segment</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
-        <button id="folderTestSegment" type="button">Tester 1 segment</button>
+        <button id="folderTestSegment" type="button">Ouvrir 1 segment</button>
+      </div>
+      <div id="folderTestOutcome" hidden style="margin-top:8px">
+        <div style="font-size:10px;color:#d0d0d6;margin-bottom:6px">Qu’a fait iOS ?</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button id="folderOutcomeDownloaded" type="button">Téléchargé dans Fichiers</button>
+          <button id="folderOutcomeOpened" type="button">Ouvert / lu</button>
+          <button id="folderOutcomeNothing" type="button">Rien</button>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">3. File de segments</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
         <button id="folderLaunchAll" type="button">Lancer tous les segments</button>
         <button id="folderCancelLaunch" type="button">Arrêter la file</button>
       </div>
-      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">3. Sélectionner le dossier téléchargé</div>
+      <div id="folderLaunchWarning" style="font-size:9px;color:#8d8d96;margin-top:5px;line-height:1.35"></div>
+
+      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">4. Vérification réelle et assemblage</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
         <button id="folderPickDirectory" type="button">Sélectionner le dossier</button>
       </div>
-      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">4. Fichier final</div>
+
+      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">5. Résultat</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
         <button id="folderExportResult" type="button">Exporter le film</button>
         <button id="folderClear" type="button">Effacer le résultat local</button>
       </div>
+
+      <div style="font-size:10px;color:#b8b8c0;margin-top:10px">Diagnostic</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:7px">
+        <button id="folderDownloadReport" type="button">Rapport technique</button>
+        <button id="folderCopyReport" type="button">Copier le rapport</button>
+      </div>
+
       <input id="folderManifestInput" type="file" accept=".m3u8,application/vnd.apple.mpegurl,application/x-mpegURL,text/plain" hidden>
       <input id="folderDirectoryInput" type="file" webkitdirectory multiple hidden>`;
 
@@ -160,9 +184,13 @@
       catch (error) { alert(error?.message || String(error)); }
     });
 
+    panel.querySelector('#folderOutcomeDownloaded').addEventListener('click', () => window.DlStreamFolderMode?.setTestOutcome?.('downloaded'));
+    panel.querySelector('#folderOutcomeOpened').addEventListener('click', () => window.DlStreamFolderMode?.setTestOutcome?.('opened'));
+    panel.querySelector('#folderOutcomeNothing').addEventListener('click', () => window.DlStreamFolderMode?.setTestOutcome?.('nothing'));
+
     panel.querySelector('#folderLaunchAll').addEventListener('click', async () => {
       const count = Number(window.DlStreamFolderMode?.getState?.()?.total || 0);
-      const ok = confirm(`DlStream va tenter de lancer ${count || 'toutes les'} demandes de téléchargement une par une.\n\nCe mode dépend du comportement de Safari et de l’hébergeur. Vérifie d’abord que « Tester 1 segment » a bien créé un fichier dans ton dossier temporaire.\n\nContinuer ?`);
+      const ok = confirm(`DlStream va lancer ${count || 'toutes les'} demandes une par une.\n\nLe compteur ne prouve pas l’écriture dans Fichiers. La preuve réelle sera la sélection du dossier à la fin.\n\nContinuer ?`);
       if (!ok) return;
       try { await window.DlStreamFolderMode?.launchAllSegments?.(); }
       catch (error) { alert(error?.message || String(error)); }
@@ -190,6 +218,18 @@
     panel.querySelector('#folderClear').addEventListener('click', async () => {
       try { await window.DlStreamFolderMode?.removeResult?.(); }
       catch (error) { alert(error?.message || String(error)); }
+    });
+
+    panel.querySelector('#folderDownloadReport').addEventListener('click', () => {
+      try { window.DlStreamFolderMode?.downloadTechnicalReport?.(); }
+      catch (error) { alert(error?.message || String(error)); }
+    });
+
+    panel.querySelector('#folderCopyReport').addEventListener('click', async () => {
+      try {
+        const ok = await window.DlStreamFolderMode?.copyTechnicalReport?.();
+        alert(ok ? 'Rapport copié.' : 'Impossible de copier automatiquement. Utilise « Rapport technique » pour télécharger le fichier texte.');
+      } catch (error) { alert(error?.message || String(error)); }
     });
 
     section.appendChild(panel);
@@ -241,7 +281,7 @@
     panel.querySelector('#folderBar').style.width = `${percent}%`;
 
     const defaultMessage = activeType === 'hls'
-      ? 'HLS détecté. Pour un hébergeur sans CORS, ce mode tente de passer par les téléchargements iOS puis réassemble le dossier sélectionné.'
+      ? 'HLS détecté. Importe le .m3u8 puis fais un test visible d’un segment.'
       : 'Mode dossier temporaire prêt.';
     panel.querySelector('#folderState').textContent = state.error ? `Erreur : ${state.error}` : (state.message || defaultMessage);
 
@@ -249,16 +289,27 @@
     const imported = Number(state.importIndex || 0);
     const total = Number(state.total || 0);
     const pieces = [];
-    if (total) pieces.push(`${total} segments`);
-    if (state.state === 'launching' || state.state === 'downloads-launched' || state.state === 'launch-paused') pieces.push(`${launch}/${total} demandes lancées`);
-    if (state.state === 'assembling-folder' || state.state === 'folder-ready' || state.state === 'folder-export-requested') pieces.push(`${imported}/${total} concaténés`);
+    if (total) pieces.push(`${total} segments attendus`);
+    if (['launching', 'downloads-launched', 'launch-paused'].includes(state.state)) pieces.push(`${launch}/${total} demandes lancées`);
+    if (state.folderExpected) pieces.push(`${Number(state.folderPresent || 0)}/${Number(state.folderExpected || 0)} présents vérifiés`);
+    if (state.folderMissingCount) pieces.push(`${state.folderMissingCount} manquants`);
+    if (state.folderExtra) pieces.push(`${state.folderExtra} en trop`);
+    if (['assembling-folder', 'folder-ready', 'folder-export-requested'].includes(state.state)) pieces.push(`${imported}/${total} concaténés`);
     if (state.bytes) pieces.push(formatBytes(state.bytes));
     if (state.tempFolderName) pieces.push(`dossier : ${state.tempFolderName}`);
     panel.querySelector('#folderMeta').textContent = pieces.join(' • ');
 
+    const outcomeBox = panel.querySelector('#folderTestOutcome');
+    outcomeBox.hidden = state.state !== 'segment-test-opened' && !state.testOutcome;
+
+    const launchAllowed = state.testOutcome === 'downloaded';
     panel.querySelector('#folderTestSegment').disabled = !state.refs?.length;
-    panel.querySelector('#folderLaunchAll').disabled = !state.refs?.length || !state.urls?.length || state.state === 'launching';
+    panel.querySelector('#folderLaunchAll').disabled = !launchAllowed || !state.refs?.length || !state.urls?.length || state.state === 'launching';
     panel.querySelector('#folderCancelLaunch').hidden = state.state !== 'launching';
+    panel.querySelector('#folderLaunchWarning').textContent = launchAllowed
+      ? 'Test confirmé comme téléchargé. La file peut être tentée, mais seule la vérification du dossier prouvera le résultat final.'
+      : 'La file reste désactivée jusqu’à ce que le test d’un segment ait réellement créé un fichier dans Fichiers.';
+
     panel.querySelector('#folderExportResult').hidden = !['folder-ready', 'folder-export-requested'].includes(state.state);
     panel.querySelector('#folderClear').hidden = !state.resultFileKey;
     return true;
