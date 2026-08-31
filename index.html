@@ -13,43 +13,23 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main id="launcher" class="launcher">
-    <button id="settingsButton" class="floating settings" type="button" aria-label="Réglages">•••</button>
-    <div class="launch-content">
-      <div class="logo">D</div>
-      <h1>DlStream</h1>
-      <button id="openPlatformButton" class="open-button" type="button">Ouvrir la plateforme</button>
-      <p id="currentUrl" class="current-url"></p>
-    </div>
+  <main id="boot" class="boot">
+    <div class="spinner" aria-hidden="true"></div>
+    <strong>DlStream</strong>
+    <span id="bootMessage">Chargement de la plateforme…</span>
+    <section id="bootError" class="boot-error" hidden>
+      <p id="errorText"></p>
+      <button id="retryButton" type="button">Réessayer</button>
+      <button id="directButton" type="button">Ouvrir directement</button>
+      <details>
+        <summary>Configuration</summary>
+        <form id="configForm">
+          <input id="platformUrl" type="url" inputmode="url" autocomplete="url" spellcheck="false">
+          <button type="submit">Enregistrer et ouvrir</button>
+        </form>
+      </details>
+    </section>
   </main>
-
-  <section id="embeddedView" class="embedded-view" hidden>
-    <iframe id="platformFrame" title="Plateforme vidéo" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
-    <button id="embeddedSettingsButton" class="floating settings" type="button" aria-label="Réglages">•••</button>
-    <button id="downloadButton" class="floating download" type="button" hidden aria-label="Télécharger">↓</button>
-  </section>
-
-  <dialog id="settingsDialog">
-    <form id="settingsForm" class="panel">
-      <div class="panel-head">
-        <strong>Configuration</strong>
-        <button id="closeSettingsButton" type="button" class="icon-button">×</button>
-      </div>
-
-      <label>URL de la plateforme
-        <input id="platformUrlInput" type="url" inputmode="url" autocomplete="url" spellcheck="false">
-      </label>
-
-      <fieldset>
-        <legend>Mode d’affichage</legend>
-        <label class="choice"><input type="radio" name="displayMode" value="direct"> <span><strong>Direct</strong><small>Pour Didvip et les sites qui bloquent les iframes. La page est ouverte réellement, sans écran blanc.</small></span></label>
-        <label class="choice"><input type="radio" name="displayMode" value="embedded"> <span><strong>Intégré</strong><small>Pour ta future plateforme lorsqu’elle autorisera DlStream à l’afficher. Permet le bouton ↓ par-dessus.</small></span></label>
-      </fieldset>
-
-      <button type="submit" class="save-button">Enregistrer</button>
-    </form>
-  </dialog>
-
   <script type="module" src="./app.js"></script>
 </body>
 </html>
