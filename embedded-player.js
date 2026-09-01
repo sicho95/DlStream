@@ -99,13 +99,74 @@
     return youtube(url) || vimeo(url) || dailymotion(url) || twitch(url) || generic(url, node);
   }
 
+  function providerPriority(item) {
+    const values = { YouTube: 500, Vimeo: 450, Dailymotion: 430, Twitch: 410, 'Lecteur externe': 100 };
+    return values[item?.provider] || 0;
+  }
+
   function keyFor(item) {
     return `${item.provider}|${item.id || item.openUrl}`;
   }
 
   function publish(item) {
     const key = keyFor(item);
-    if (!providers.has(key)) providers.set(key, item);
+    const previous = providers.get(key);
+    providers.set(key, { ...previous, ...item, lastSeen: Date.now() });
+  }
+
+  function activeProvider() {
+    return [...providers.values()]
+      .sort((a, b) => ((b.visible ? 1000 : 0) + providerPriority(b) + Number(b.lastSeen || 0) / 1e13)
+        - ((a.visible ? 1000 : 0) + providerPriority(a) + Number(a.lastSeen || 0) / 1e13))[0] || null;
+  }
+
+  function providerAction(item) {
+    if (!item) return null;
+    if (item.provider === 'YouTube') {
+      return {
+        label: 'Télécharger ma vidéo',
+        url: item.id ? `https://studio.youtube.com/video/${encodeURIComponent(item.id)}/edit` : 'https://studio.youtube.com/',
+        note: 'YouTube Studio web : pour une vidéo mise en ligne sur ton compte, utiliser le menu ⋮ puis Télécharger. Aucun besoin d’installer l’app Studio.',
+      };
+    }
+    if (item.provider === 'Vimeo') {
+      return {
+        label: 'Télécharger ma vidéo',
+        url: item.openUrl,
+        note: 'Vimeo : connecté comme propriétaire, ouvrir la page de la vidéo puis utiliser Télécharger si cette fonction est disponible sur le compte.',
+      };
+    }
+    if (item.provider === 'Dailymotion') {
+      return {
+        label: 'Télécharger ma vidéo',
+        url: 'https://www.dailymotion.com/partner',
+        note: 'Dailymotion Studio : Médias → Vidéos → ⋮ → Télécharger pour une vidéo de ton compte.',
+      };
+    }
+    if (item.provider === 'Twitch') {
+      return {
+        label: 'Télécharger ma vidéo',
+        url: 'https://dashboard.twitch.tv/',
+        note: 'Twitch : Tableau de bord des créateurs → Studio vidéo → ⋮ → Télécharger pour ta propre VOD.',
+      };
+    }
+    return {
+      label: 'Ouvrir le lecteur',
+      url: item.openUrl,
+      note: 'Lecteur externe détecté. Si aucune source HLS/DASH/directe n’est exposée, utiliser la fonction de téléchargement officielle du fournisseur pour ton propre contenu.',
+    };
+  }
+
+  function officialDownload(item = activeProvider()) {
+    const action = providerAction(item);
+    if (!action?.url) return null;
+    window.open(action.url, '_blank', 'noopener');
+    return action;
+  }
+
+  function isProviderUrl(value) {
+    const url = normalize(value);
+    return Boolean(url && identify(url, null));
   }
 
   function scan() {
@@ -119,11 +180,13 @@
       if (!url) return;
       const item = identify(url, node);
       if (!item) return;
+      const visible = Boolean(node.getClientRects?.().length || node.offsetWidth || node.offsetHeight);
       const value = {
         ...item,
         embedUrl: url.href,
         host: url.hostname.toLowerCase(),
         sourcePage: config.targetUrl || location.href,
+        visible,
       };
       found.push(value);
       publish(value);
@@ -137,6 +200,7 @@
     }
 
     render();
+    syncDownloadFallback();
   }
 
   function schedule() {
@@ -166,7 +230,7 @@
     panel.id = 'embeddedProviderPanel';
     panel.className = 'section';
     panel.hidden = true;
-    panel.innerHTML = '<h3>Lecteurs embarqués</h3><div class="subtle">Les lecteurs tiers sont identifiés sans extraire leurs flux internes/signés.</div><div id="embeddedProviderList"></div>';
+    panel.innerHTML = '<h3>Lecteurs embarqués</h3><div class="subtle">Une source HLS/DASH/directe reste prioritaire. Sinon DlStream bascule vers le téléchargement officiel de tes propres vidéos chez le fournisseur.</div><div id="embeddedProviderList"></div>';
 
     const mediaSection = [...sheet.querySelectorAll('.section')].find((section) => section.querySelector('h3')?.textContent?.includes('Téléchargement'));
     if (mediaSection) sheet.insertBefore(panel, mediaSection);
@@ -185,11 +249,12 @@
     const list = panel.querySelector('#embeddedProviderList');
     if (!list) return;
 
-    const items = [...providers.values()];
+    const items = [...providers.values()].sort((a, b) => providerPriority(b) - providerPriority(a));
     panel.hidden = !items.length;
     list.textContent = '';
 
     for (const item of items) {
+      const action = providerAction(item);
       const row = document.createElement('div');
       row.style.cssText = 'margin-top:7px;padding:8px;border-radius:10px;background:#18181b;border:1px solid #34343a';
 
@@ -203,10 +268,16 @@
 
       const note = document.createElement('div');
       note.style.cssText = 'font-size:9px;color:#8f8f98;line-height:1.35;margin-top:5px';
-      note.textContent = 'DlStream ne tente pas d’extraire les flux internes de ce fournisseur. Utiliser les options officielles du service pour télécharger un contenu dont vous disposez des droits.';
+      note.textContent = action.note;
 
       const actions = document.createElement('div');
       actions.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap;margin-top:7px';
+
+      const downloadOwn = document.createElement('button');
+      downloadOwn.type = 'button';
+      downloadOwn.textContent = action.label;
+      downloadOwn.style.cssText = 'min-height:32px;border:1px solid #fff;border-radius:9px;background:#fff;color:#000;padding:5px 8px;font-weight:700';
+      downloadOwn.onclick = () => officialDownload(item);
 
       const open = document.createElement('button');
       open.type = 'button';
@@ -225,11 +296,39 @@
         setTimeout(() => { copyButton.textContent = previous; }, 1000);
       };
 
-      actions.append(open, copyButton);
+      actions.append(downloadOwn, open, copyButton);
       row.append(title, host, note, actions);
       list.appendChild(row);
     }
   }
+
+  function syncDownloadFallback() {
+    const config = cfg();
+    if (config.isNested) return;
+    const root = document.querySelector('#dlstream-controls')?.shadowRoot;
+    const download = root?.querySelector('#download');
+    if (!download) return;
+    const media = window.__DLSTREAM_ACTIVE_MEDIA__;
+    const item = activeProvider();
+    if (!media && item) {
+      download.hidden = false;
+      download.title = `${providerAction(item)?.label || 'Ouvrir'} · ${item.provider}`;
+      download.dataset.embeddedFallback = '1';
+    } else {
+      delete download.dataset.embeddedFallback;
+    }
+  }
+
+  window.addEventListener('click', (event) => {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    const button = path.find((node) => node?.id === 'download');
+    if (!button || window.__DLSTREAM_ACTIVE_MEDIA__) return;
+    const item = activeProvider();
+    if (!item) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    officialDownload(item);
+  }, true);
 
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'DLSTREAM_EMBEDDED_PROVIDER_BATCH') return;
@@ -237,6 +336,18 @@
       if (item?.provider && item?.openUrl) publish(item);
     }
     render();
+    syncDownloadFallback();
+  });
+
+  document.addEventListener('dlstream-active-media', syncDownloadFallback);
+  document.addEventListener('dlstream-media-changed', syncDownloadFallback);
+
+  window.DlStreamEmbedded = Object.freeze({
+    activeProvider,
+    officialDownload,
+    providerAction,
+    isProviderUrl,
+    list: () => [...providers.values()],
   });
 
   new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src','data-src','data-url','data','title','allow'] });
@@ -244,7 +355,8 @@
   window.addEventListener('dlstream-domains-updated', schedule);
   setInterval(() => {
     scan();
+    syncDownloadFallback();
     if (mountedRoot) render();
-  }, 2500);
+  }, 500);
   setTimeout(scan, 300);
 })();
