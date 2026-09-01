@@ -1,4 +1,4 @@
-const CACHE = 'dlstream-static-v30';
+const CACHE = 'dlstream-static-v31';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const APP_SHELL = [
   './offline-downloader.js',
   './candidate-observer.js',
   './ashell-safe.js',
+  './platform-manager.js',
   './manifest.webmanifest',
   './icon.svg',
 ];
