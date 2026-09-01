@@ -2,6 +2,7 @@
   const cfg = window.__DLSTREAM__;
   if (!cfg || cfg.isNested) return;
 
+  const DIRECT_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|mpe|m2v|m2ts|mts|ts|vob|ogv|ogg|3gp|3g2|wmv|flv|f4v|asf|divx|rm|rmvb)(?:$|[?#])/i;
   const candidates = new Map();
   let activeKey = '';
   let wrapped = false;
@@ -26,7 +27,7 @@
     if (!url.pathname.startsWith(basePath)) return false;
     const relative = url.pathname.slice(basePath.length).toLowerCase();
     if (!relative) return true;
-    return /(?:^|\/)(?:index\.html|manifest(?:\.webmanifest|\.webm)?|sw\.js|app\.js|browser-runtime\.js|media-detector\.js|offline-downloader\.js|candidate-observer\.js|ashell-title\.js|styles\.css|icon\.svg)$/i.test(relative)
+    return /(?:^|\/)(?:index\.html|manifest(?:\.webmanifest|\.webm)?|sw\.js|app\.js|browser-runtime\.js|media-detector\.js|offline-downloader\.js|candidate-observer\.js|ashell-safe\.js|platform-manager\.js|styles\.css|icon\.svg)$/i.test(relative)
       || /\.(?:js|css|webmanifest|svg|html)$/i.test(relative);
   }
 
@@ -39,9 +40,14 @@
     return `${String(media?.type || media?.mediaType || '').toLowerCase()}|${url?.href || ''}`;
   }
 
+  function kind(media) {
+    const url = mediaUrl(media);
+    return DIRECT_EXT_RE.test(url?.href || '') ? 'direct' : 'stream';
+  }
+
   function typePriority(media) {
     const type = String(media?.type || media?.mediaType || '').toLowerCase();
-    if (type === 'direct') return 4000;
+    if (type === 'direct') return kind(media) === 'direct' ? 4000 : 2400;
     if (type === 'hls') return 3000;
     if (type === 'dash') return 2600;
     if (type === 'stream') return 2200;
@@ -79,10 +85,6 @@
     if (!activeKey || !candidates.has(activeKey)) activeKey = sortedEntries()[0]?.[0] || '';
     publishActive();
     syncUi();
-  }
-
-  function kind(media) {
-    return String(media?.type || media?.mediaType || '').toLowerCase() === 'direct' ? 'direct' : 'stream';
   }
 
   function filenameFor(media) {
@@ -153,7 +155,7 @@
       <div>3. Ajouter <strong>Obtenir le presse-papiers</strong>.</div>
       <div>4. Ajouter l’action a-Shell <strong>Exécuter</strong> et lui donner la variable <strong>Presse-papiers</strong>.</div>
       <div>5. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que curl et ffmpeg soient disponibles.</div>
-      <div style="margin-top:7px;color:#a8a8b0">La flèche utilise toujours a-Shell : <strong>curl</strong> pour un fichier complet et <strong>ffmpeg</strong> pour un stream à reconstruire. Le fichier final est enregistré dans <strong>~/Documents</strong>, visible dans <strong>Fichiers → a-Shell</strong>.</div>`;
+      <div style="margin-top:7px;color:#a8a8b0">La flèche utilise toujours a-Shell : <strong>curl</strong> seulement pour une URL portant une vraie extension de fichier complet ; <strong>ffmpeg</strong> pour HLS/DASH et les endpoints vidéo sans extension. Le fichier final est enregistré dans <strong>~/Documents</strong>, visible dans <strong>Fichiers → a-Shell</strong>.</div>`;
     state?.parentElement?.appendChild(panel);
     return panel;
   }
@@ -184,7 +186,7 @@
       const top = document.createElement('div');
       top.style.cssText = 'font-size:11px;font-weight:700';
       const type = String(media.type || media.mediaType || 'média').toUpperCase();
-      top.textContent = `${type} · ${kind(media) === 'direct' ? 'fichier complet · curl' : 'à reconstruire · ffmpeg'}`;
+      top.textContent = `${type} · ${kind(media) === 'direct' ? 'fichier complet · curl' : 'stream/endpoint · ffmpeg'}`;
 
       const name = document.createElement('div');
       name.style.cssText = 'font-size:10px;color:#b5b5bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
@@ -222,7 +224,7 @@
       else {
         const url = mediaUrl(media);
         const type = String(media.type || media.mediaType || 'média').toUpperCase();
-        state.textContent = `${entries.length} média${entries.length > 1 ? 's' : ''} détecté${entries.length > 1 ? 's' : ''} · sélection : ${type} · ${url?.hostname || ''}`;
+        state.textContent = `${entries.length} média${entries.length > 1 ? 's' : ''} détecté${entries.length > 1 ? 's' : ''} · sélection : ${type} · ${kind(media) === 'direct' ? 'curl' : 'ffmpeg'} · ${url?.hostname || ''}`;
       }
     }
 
