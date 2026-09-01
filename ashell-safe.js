@@ -124,8 +124,9 @@
 
   function mediaKind(media, url) {
     const declared = String(media?.type || media?.mediaType || '').toLowerCase();
-    if (declared === 'direct') return 'direct';
     if (['hls', 'dash', 'stream'].includes(declared)) return 'stream';
+    // Ne considérer comme fichier direct que les URL portant une vraie extension média.
+    // Un endpoint opaque déclaré video/* peut être un flux, une route authentifiée ou un fichier sans nom.
     return DIRECT_EXT_RE.test(url?.href || '') ? 'direct' : 'stream';
   }
 
