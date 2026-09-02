@@ -18,6 +18,7 @@ const APP_SHELL = [
   './spa-compat.js',
   './media-filter.js',
   './version-badge.js',
+  './compat-status.js',
   './manifest.webmanifest',
   './icon.svg',
 ];
