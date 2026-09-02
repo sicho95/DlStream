@@ -5,6 +5,7 @@
   const DIRECT_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|mpe|m2v|m2ts|mts|ts|vob|ogv|ogg|3gp|3g2|wmv|flv|f4v|asf|divx|rm|rmvb)(?:$|[?#])/i;
   const candidates = new Map();
   let activeKey = '';
+  let manualSelection = false;
   let wrapped = false;
 
   function normalize(value, base = cfg.targetUrl) {
@@ -45,6 +46,11 @@
     return DIRECT_EXT_RE.test(url?.href || '') ? 'direct' : 'stream';
   }
 
+  function isStrongMedia(media) {
+    const type = String(media?.type || media?.mediaType || '').toLowerCase();
+    return kind(media) === 'direct' || type === 'hls' || type === 'dash';
+  }
+
   function typePriority(media) {
     const type = String(media?.type || media?.mediaType || '').toLowerCase();
     if (type === 'direct') return kind(media) === 'direct' ? 4000 : 2400;
@@ -60,15 +66,23 @@
       .slice(0, 40);
   }
 
-  function activeMedia() {
-    const selected = candidates.get(activeKey);
-    if (selected) return selected;
-    return sortedEntries()[0]?.[1] || null;
-  }
-
   function embeddedProvider() {
     try { return window.DlStreamEmbedded?.activeProvider?.() || null; }
     catch { return null; }
+  }
+
+  function refreshAutoSelection() {
+    if (manualSelection && candidates.has(activeKey)) return;
+    manualSelection = false;
+    const entries = sortedEntries();
+    const embedded = embeddedProvider();
+    const preferred = embedded ? entries.find(([, media]) => isStrongMedia(media)) : entries[0];
+    activeKey = preferred?.[0] || '';
+  }
+
+  function activeMedia() {
+    refreshAutoSelection();
+    return candidates.get(activeKey) || null;
   }
 
   function publishActive() {
@@ -87,7 +101,8 @@
       if (!previous || Number(media?.score || 0) >= Number(previous?.score || 0)) candidates.set(key, media);
     }
 
-    if (!activeKey || !candidates.has(activeKey)) activeKey = sortedEntries()[0]?.[0] || '';
+    if (!candidates.has(activeKey)) manualSelection = false;
+    refreshAutoSelection();
     publishActive();
     syncUi();
   }
@@ -161,7 +176,7 @@
       <div>4. Ajouter <strong>Obtenir le presse-papiers</strong>.</div>
       <div>5. Ajouter l’action a-Shell <strong>Exécuter</strong> et lui donner la variable <strong>Presse-papiers</strong>.</div>
       <div>6. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que curl, ffmpeg et yt-dlp soient disponibles.</div>
-      <div style="margin-top:7px;color:#a8a8b0">La flèche choisit automatiquement : <strong>curl</strong> pour un fichier complet avec extension ; <strong>ffmpeg</strong> pour HLS/DASH ou un endpoint vidéo ; <strong>yt-dlp</strong> lorsqu’un lecteur embarqué reconnu est le seul média exploitable. Pour yt-dlp, MP4/M4A est préféré. Un éventuel WebM n’est que remuxé en MP4 lorsque les codecs le permettent : <strong>aucun réencodage vidéo lourd n’est lancé automatiquement</strong>.</div>
+      <div style="margin-top:7px;color:#a8a8b0">La flèche choisit automatiquement : <strong>curl</strong> pour un fichier complet avec extension ; <strong>ffmpeg</strong> pour HLS/DASH ; <strong>yt-dlp</strong> pour un lecteur embarqué reconnu lorsqu’aucune source complète/HLS/DASH n’est disponible ; sinon <strong>ffmpeg</strong> reste utilisé pour les endpoints vidéo opaques. Pour yt-dlp, MP4/M4A est préféré. Un éventuel WebM n’est que remuxé en MP4 lorsque les codecs le permettent : <strong>aucun réencodage vidéo lourd n’est lancé automatiquement</strong>.</div>
       <div style="margin-top:7px;color:#a8a8b0">Les fichiers sont enregistrés dans <strong>~/Documents</strong>, visibles dans <strong>Fichiers → a-Shell</strong>.</div>`;
     state?.parentElement?.appendChild(panel);
     return panel;
@@ -212,7 +227,8 @@
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
     if (!root) return false;
 
-    const media = activeMedia();
+    refreshAutoSelection();
+    const media = candidates.get(activeKey) || null;
     const embedded = embeddedProvider();
     const download = root.querySelector('#download');
     const state = root.querySelector('#mediaState');
@@ -259,6 +275,7 @@
         event.preventDefault();
         event.stopImmediatePropagation();
         activeKey = mediaRow.dataset.mediaKey;
+        manualSelection = true;
         publishActive();
         syncUi();
         return;
@@ -273,10 +290,11 @@
       }
 
       if (!download) return;
-      if (!activeMedia()) return;
+      const media = activeMedia();
+      if (!media) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      try { smartDownload(activeMedia()); }
+      try { smartDownload(media); }
       catch (error) { alert(error?.message || String(error)); }
     }, true);
   }
