@@ -151,11 +151,13 @@
     panel.innerHTML = `
       <strong style="display:block;margin-bottom:6px">Configurer a-Shell une seule fois</strong>
       <div>1. Installer <strong>a-Shell</strong> depuis l’App Store.</div>
-      <div>2. Dans Raccourcis, créer un raccourci nommé exactement <strong>DlStream a-Shell</strong>.</div>
-      <div>3. Ajouter <strong>Obtenir le presse-papiers</strong>.</div>
-      <div>4. Ajouter l’action a-Shell <strong>Exécuter</strong> et lui donner la variable <strong>Presse-papiers</strong>.</div>
-      <div>5. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que curl et ffmpeg soient disponibles.</div>
-      <div style="margin-top:7px;color:#a8a8b0">La flèche utilise toujours a-Shell : <strong>curl</strong> seulement pour une URL portant une vraie extension de fichier complet ; <strong>ffmpeg</strong> pour HLS/DASH et les endpoints vidéo sans extension. Le fichier final est enregistré dans <strong>~/Documents</strong>, visible dans <strong>Fichiers → a-Shell</strong>.</div>`;
+      <div>2. Ouvrir a-Shell et exécuter <code style="user-select:all">pip install --upgrade yt-dlp</code>.</div>
+      <div>3. Dans Raccourcis, créer un raccourci nommé exactement <strong>DlStream a-Shell</strong>.</div>
+      <div>4. Ajouter <strong>Obtenir le presse-papiers</strong>.</div>
+      <div>5. Ajouter l’action a-Shell <strong>Exécuter</strong> et lui donner la variable <strong>Presse-papiers</strong>.</div>
+      <div>6. Régler <strong>Ouvrir l’application</strong> sur toujours / dans l’app pour que curl, ffmpeg et yt-dlp soient disponibles.</div>
+      <div style="margin-top:7px;color:#a8a8b0">La flèche choisit automatiquement : <strong>curl</strong> pour un fichier complet avec extension ; <strong>ffmpeg</strong> pour HLS/DASH ou un endpoint vidéo ; <strong>yt-dlp</strong> lorsqu’un lecteur embarqué reconnu est le seul média exploitable. Pour yt-dlp, MP4/M4A est préféré. Un éventuel WebM n’est que remuxé en MP4 lorsque les codecs le permettent : <strong>aucun réencodage vidéo lourd n’est lancé automatiquement</strong>.</div>
+      <div style="margin-top:7px;color:#a8a8b0">Les fichiers sont enregistrés dans <strong>~/Documents</strong>, visibles dans <strong>Fichiers → a-Shell</strong>.</div>`;
     state?.parentElement?.appendChild(panel);
     return panel;
   }
