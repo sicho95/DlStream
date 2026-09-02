@@ -30,32 +30,35 @@
       </details>
     </section>
   </main>
-  <script>window.__DLSTREAM_RELEASE__='43';</script>
-  <script src="./virtual-location.js?v=43"></script>
-  <script src="./asset-compat.js?v=43"></script>
-  <script src="./inline-location.js?v=43"></script>
-  <script src="./media-filter.js?v=43"></script>
-  <script src="./iframe-direct.js?v=43"></script>
-  <script src="./spa-compat.js?v=43"></script>
-  <script src="./ashell-safe.js?v=43"></script>
-  <script src="./platform-manager.js?v=43"></script>
-  <script src="./media-observer-v2.js?v=43"></script>
-  <script src="./embedded-player.js?v=43"></script>
-  <script src="./embed-bridge.js?v=43"></script>
-  <script src="./version-badge.js?v=43"></script>
-  <script src="./compat-status.js?v=43"></script>
-  <script src="./ui-fixes.js?v=43"></script>
+  <script>window.__DLSTREAM_RELEASE__='44';</script>
+  <script src="./virtual-location.js?v=44"></script>
+  <script src="./route-sync.js?v=44"></script>
+  <script src="./asset-compat.js?v=44"></script>
+  <script src="./astro-compat.js?v=44"></script>
+  <script src="./inline-location.js?v=44"></script>
+  <script src="./media-filter.js?v=44"></script>
+  <script src="./iframe-direct.js?v=44"></script>
+  <script src="./spa-compat.js?v=44"></script>
+  <script src="./ashell-safe.js?v=44"></script>
+  <script src="./platform-manager.js?v=44"></script>
+  <script src="./media-observer-v2.js?v=44"></script>
+  <script src="./embedded-player.js?v=44"></script>
+  <script src="./embed-bridge.js?v=44"></script>
+  <script src="./version-badge.js?v=44"></script>
+  <script src="./compat-status.js?v=44"></script>
+  <script src="./framework-status.js?v=44"></script>
+  <script src="./ui-fixes.js?v=44"></script>
   <script type="module">
-    async function waitForV43Worker() {
+    async function waitForV44Worker() {
       if (!('serviceWorker' in navigator)) return;
       const message = document.querySelector('#bootMessage');
-      if (message) message.textContent = 'Activation de DlStream v43…';
+      if (message) message.textContent = 'Activation de DlStream v44…';
 
-      const registration = await navigator.serviceWorker.register('./sw.js?v=43');
+      const registration = await navigator.serviceWorker.register('./sw.js?v=44');
       await navigator.serviceWorker.ready;
 
-      const controllerIsV43 = () => String(navigator.serviceWorker.controller?.scriptURL || '').includes('v=43');
-      if (controllerIsV43()) return;
+      const controllerIsV44 = () => String(navigator.serviceWorker.controller?.scriptURL || '').includes('v=44');
+      if (controllerIsV44()) return;
 
       await new Promise((resolve) => {
         let done = false;
@@ -66,7 +69,7 @@
           clearTimeout(timer);
           resolve();
         };
-        const onChange = () => controllerIsV43() && finish();
+        const onChange = () => controllerIsV44() && finish();
         const timer = setTimeout(finish, 2500);
         navigator.serviceWorker.addEventListener('controllerchange', onChange);
         registration.update().catch(() => {});
@@ -74,9 +77,9 @@
     }
 
     try {
-      await waitForV43Worker();
+      await waitForV44Worker();
     } catch (_) {}
-    await import('./app.js?v=43');
+    await import('./app.js?v=44');
   </script>
 </body>
 </html>
