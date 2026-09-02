@@ -3,6 +3,7 @@
   window.__DLSTREAM_ASSET_COMPAT__ = true;
 
   const VIRTUAL_SEGMENT = '__dlstream_asset__';
+  const AD_HOST_RE = /(?:^|[.-])(?:ads?|adserver|adservice|tracking|tracker|analytics|pixel)(?:[.-]|$)|adexchange|adexchanger|doubleclick|googlesyndication|taboola|outbrain|exoclick/i;
   const nativeWrite = Document.prototype.write;
   const nativeWriteln = Document.prototype.writeln;
   const nativeSetAttribute = Element.prototype.setAttribute;
@@ -37,6 +38,29 @@
     } catch (_) {}
 
     return null;
+  }
+
+  function rootHost() {
+    const configured = String(window.__DLSTREAM__?.rootHost || '').toLowerCase();
+    if (configured) return configured;
+    try {
+      const stored = localStorage.getItem('dlstream.platformUrl');
+      return stored ? new URL(stored).hostname.toLowerCase() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function learnedHosts() {
+    const configured = window.__DLSTREAM__?.learnedDomains;
+    if (Array.isArray(configured)) return configured.map((host) => String(host || '').toLowerCase()).filter(Boolean);
+    try {
+      const map = JSON.parse(localStorage.getItem('dlstream.learnedDomains') || '{}');
+      const values = map?.[rootHost()];
+      return Array.isArray(values) ? values.map((host) => String(host || '').toLowerCase()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
   }
 
   function normalize(value, base = document.baseURI || targetUrl()?.href || location.href) {
@@ -79,6 +103,33 @@
     }
   }
 
+  function assetHostAllowed(url) {
+    const target = targetUrl();
+    if (!url || !target) return false;
+    const host = url.hostname.toLowerCase();
+    if (AD_HOST_RE.test(host)) return false;
+    if (url.origin === target.origin) return true;
+
+    try {
+      const proxyHost = new URL(window.__DLSTREAM__?.proxyBase || 'https://proxy.sicho95.workers.dev/').hostname.toLowerCase();
+      if (host === proxyHost) return false;
+    } catch (_) {}
+
+    const app = appBase();
+    if (app?.hostname?.toLowerCase() === host) return false;
+    return learnedHosts().some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+  }
+
+  function stats() {
+    return window.__DLSTREAM_ASSET_STATS__ ||= {
+      rewritten: 0,
+      loaded: 0,
+      failed: 0,
+      lastAsset: '',
+      lastError: '',
+    };
+  }
+
   function virtualize(value, kind = 'script', node = null) {
     const target = targetUrl();
     const prefix = virtualPrefix();
@@ -88,7 +139,7 @@
     if (!url || isVirtual(url) || isDlStreamAsset(url)) return null;
     url = mapGithubAbsoluteToTarget(url);
 
-    if (url.origin !== target.origin) return null;
+    if (!assetHostAllowed(url)) return null;
 
     if (kind === 'link') {
       const rel = String(node?.getAttribute?.('rel') || '').toLowerCase();
@@ -104,9 +155,9 @@
     const virtual = new URL(`./${VIRTUAL_SEGMENT}/${scheme}/${host}${pathname}`, appBase());
     virtual.search = url.search;
 
-    const stats = window.__DLSTREAM_ASSET_STATS__ ||= { rewritten: 0, lastAsset: '' };
-    stats.rewritten += 1;
-    stats.lastAsset = url.href;
+    const state = stats();
+    state.rewritten += 1;
+    state.lastAsset = url.href;
     return virtual;
   }
 
@@ -214,6 +265,25 @@
     });
   } catch (_) {}
 
+  function watchVirtualNode(node) {
+    if (!(node instanceof HTMLScriptElement || node instanceof HTMLLinkElement)) return;
+    if (node.__dlstreamAssetWatched) return;
+    const raw = node instanceof HTMLScriptElement ? node.getAttribute('src') : node.getAttribute('href');
+    const url = normalize(raw);
+    if (!url || !isVirtual(url)) return;
+
+    node.__dlstreamAssetWatched = true;
+    node.addEventListener('load', () => {
+      const state = stats();
+      state.loaded += 1;
+    }, { once: true });
+    node.addEventListener('error', () => {
+      const state = stats();
+      state.failed += 1;
+      state.lastError = raw || url.href;
+    }, { once: true });
+  }
+
   function repairNode(node) {
     if (!(node instanceof Element)) return;
 
@@ -221,12 +291,14 @@
       const raw = node.getAttribute('src');
       const virtual = raw ? virtualize(raw, 'script', node) : null;
       if (virtual && raw !== virtual.href) nativeSetAttribute.call(node, 'src', virtual.href);
+      watchVirtualNode(node);
     }
 
     if (node instanceof HTMLLinkElement) {
       const raw = node.getAttribute('href');
       const virtual = raw ? virtualize(raw, 'link', node) : null;
       if (virtual && raw !== virtual.href) nativeSetAttribute.call(node, 'href', virtual.href);
+      watchVirtualNode(node);
     }
 
     node.querySelectorAll?.('script[src],link[href]').forEach(repairNode);
@@ -250,5 +322,6 @@
     virtualize,
     rewriteHtml,
     isVirtual,
+    assetHostAllowed,
   });
 })();
