@@ -34,6 +34,16 @@
     }
   }
 
+  function shortRoute(value) {
+    try {
+      const url = new URL(value);
+      const route = `${url.pathname}${url.search}${url.hash}`;
+      return route.length > 110 ? `${route.slice(0, 107)}…` : route;
+    } catch {
+      return String(value || '');
+    }
+  }
+
   function mount() {
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
     const sheet = root?.querySelector('#sheet');
@@ -54,15 +64,20 @@
     const spa = window.__DLSTREAM_SPA_STATS__ || {};
     const filter = window.__DLSTREAM_FILTER_STATS__ || {};
     const assets = window.__DLSTREAM_ASSET_STATS__ || {};
+    const route = window.__DLSTREAM_ROUTE_STATS__ || {};
     const lines = [
       `Assets JS relayés : ${Number(assets.rewritten || 0)}`,
       `Assets chargés : ${Number(assets.loaded || 0)}`,
       `Assets en erreur : ${Number(assets.failed || 0)}`,
+      `Scripts URL réécrits : ${Number(route.rewrittenSources || 0)}`,
+      `Historique virtuel : ${Number(route.historyUpdates || 0)}`,
       `Requêtes app relayées : ${Number(spa.proxied || 0)}`,
       `Requêtes app en erreur : ${Number(spa.failed || 0)}`,
       `Faux médias filtrés : ${Number(filter.rejected || 0)}`,
       `Erreurs JS : ${Number(runtime.errors || 0) + Number(runtime.rejections || 0)}`,
     ];
+    if (route.current) lines.push(`Route virtuelle : ${shortRoute(route.current)}`);
+    if (route.lastHistory) lines.push(`Dernière route client : ${shortRoute(route.lastHistory)}`);
     if (assets.lastAsset) {
       try { lines.push(`Dernier asset : ${new URL(assets.lastAsset).pathname.split('/').pop() || new URL(assets.lastAsset).hostname}`); }
       catch (_) {}
