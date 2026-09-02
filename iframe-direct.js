@@ -30,24 +30,50 @@
     return null;
   }
 
-  function unwrapDlStreamFrame(value) {
-    const candidate = normalize(value);
-    if (!candidate) return null;
+  function looksLikePlayerFrame(frame, target) {
+    if (!frame || !target) return Boolean(providerFor(target));
+    if (providerFor(target)) return true;
 
-    if (providerFor(candidate)) return candidate;
-    if (candidate.origin !== location.origin) return null;
+    const path = `${target.hostname}${target.pathname}`.toLowerCase();
+    const hint = [
+      frame.getAttribute?.('title'),
+      frame.getAttribute?.('allow'),
+      frame.getAttribute?.('name'),
+      frame.getAttribute?.('id'),
+      frame.getAttribute?.('class'),
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (frame.hasAttribute?.('allowfullscreen')) return true;
+    if (/(?:autoplay|fullscreen|picture-in-picture|encrypted-media)/i.test(frame.getAttribute?.('allow') || '')) return true;
+    if (/(?:video|vidéo|player|stream|lecture|watch)/i.test(hint)) return true;
+    if (/(?:^|\/)(?:embed|player|video|watch|stream)(?:\/|$)/i.test(path)) return true;
+    if (/\/(?:e|v)\/[a-z0-9_-]{4,}(?:$|[/?#])/i.test(target.href)) return true;
+    return false;
+  }
+
+  function nestedTarget(value) {
+    const candidate = normalize(value);
+    if (!candidate || candidate.origin !== location.origin) return null;
 
     const nested = candidate.searchParams.get('nested');
     const targetRaw = candidate.searchParams.get('url');
     if (nested !== '1' || !targetRaw) return null;
+    return normalize(targetRaw);
+  }
 
-    const target = normalize(targetRaw);
-    return target && providerFor(target) ? target : null;
+  function directTarget(value, frame = null) {
+    const candidate = normalize(value);
+    if (!candidate) return null;
+    if (providerFor(candidate)) return candidate;
+
+    const target = nestedTarget(candidate);
+    if (!target) return null;
+    return looksLikePlayerFrame(frame, target) ? target : null;
   }
 
   function notify(frame, url) {
     try {
-      const provider = providerFor(url);
+      const provider = providerFor(url) || url.hostname.replace(/^www\./, '');
       window.dispatchEvent(new CustomEvent('dlstream-direct-embed', {
         detail: { provider, url: url.href, frame },
       }));
@@ -61,7 +87,7 @@
         enumerable: nativeSrcDescriptor.enumerable,
         get: nativeSrcDescriptor.get,
         set(value) {
-          const direct = unwrapDlStreamFrame(value);
+          const direct = directTarget(value, this);
           nativeSrcDescriptor.set.call(this, direct?.href || value);
           if (direct) notify(this, direct);
         },
@@ -75,7 +101,7 @@
       writable: true,
       value(name, value) {
         if (String(name || '').toLowerCase() === 'src') {
-          const direct = unwrapDlStreamFrame(value);
+          const direct = directTarget(value, this);
           nativeSetAttribute.call(this, name, direct?.href || value);
           if (direct) notify(this, direct);
           return;
@@ -88,7 +114,7 @@
   function restoreDirectFrames() {
     document.querySelectorAll?.('iframe[src]').forEach((frame) => {
       const raw = frame.getAttribute('src');
-      const direct = unwrapDlStreamFrame(raw);
+      const direct = directTarget(raw, frame);
       if (!direct) return;
 
       const current = normalize(frame.src);
@@ -100,11 +126,12 @@
 
   window.DlStreamDirectEmbeds = Object.freeze({
     providerFor,
+    looksLikePlayerFrame,
     isDirectProviderUrl: (value) => Boolean(providerFor(value)),
-    unwrapDlStreamFrame,
+    directTarget,
     restoreDirectFrames,
   });
 
   // Conserver le correctif après document.open/document.write et pour les lecteurs créés tardivement.
-  setInterval(restoreDirectFrames, 150);
+  setInterval(restoreDirectFrames, 120);
 })();
