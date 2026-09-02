@@ -4,7 +4,7 @@
 
   const nativeFetch = window.fetch.bind(window);
   const nativeXhrOpen = XMLHttpRequest.prototype.open;
-  const AD_HOST_RE = /(?:^|[.-])(?:ads?|adserver|adservice|adexchange|tracking|tracker|analytics|pixel)(?:[.-]|$)|doubleclick|googlesyndication|taboola|outbrain|exoclick/i;
+  const AD_HOST_RE = /(?:^|[.-])(?:ads?|adserver|adservice|tracking|tracker|analytics|pixel)(?:[.-]|$)|adexchange|adexchanger|doubleclick|googlesyndication|taboola|outbrain|exoclick/i;
   const MEDIA_PATH_RE = /(?:^|\/)(?:video|media|stream|playback|manifest|playlist|master|hls|dash)(?:\/|$|[._-])|videoplayback|\.m3u8(?:$|[?#])|\.mpd(?:$|[?#])/i;
   let fetchFallback = null;
   let xhrOpenFallback = null;
@@ -32,6 +32,20 @@
     catch { return ''; }
   }
 
+  function internalHost(hostname) {
+    const host = String(hostname || '').toLowerCase();
+    if (!host) return false;
+    try {
+      const app = appBase();
+      if (app?.hostname?.toLowerCase() === host) return true;
+    } catch (_) {}
+    try {
+      const proxyHost = new URL(cfg()?.proxyBase || '').hostname.toLowerCase();
+      if (proxyHost && proxyHost === host) return true;
+    } catch (_) {}
+    return false;
+  }
+
   function isDlStreamAsset(url) {
     const app = appBase();
     if (!url || !app || url.origin !== app.origin) return false;
@@ -56,12 +70,12 @@
   function hostAllowed(url) {
     if (!url) return false;
     try {
+      const host = url.hostname.toLowerCase();
+      if (internalHost(host) || AD_HOST_RE.test(host)) return false;
       if (url.origin === targetOrigin()) return true;
-      if (AD_HOST_RE.test(url.hostname)) return false;
-      if (window.DlStreamTrust?.hostAllowed) return Boolean(window.DlStreamTrust.hostAllowed(url.hostname));
+      if (window.DlStreamTrust?.hostAllowed) return Boolean(window.DlStreamTrust.hostAllowed(host));
 
       const config = cfg();
-      const host = url.hostname.toLowerCase();
       const root = String(config?.rootHost || '').toLowerCase();
       if (host === root || host.endsWith(`.${root}`)) return true;
       const learned = Array.isArray(config?.learnedDomains) ? config.learnedDomains : [];
