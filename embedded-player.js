@@ -186,7 +186,7 @@
     panel.id = 'embeddedProviderPanel';
     panel.className = 'section';
     panel.hidden = true;
-    panel.innerHTML = '<h3>Lecteurs embarqués</h3><div class="subtle">Si aucune URL directe/HLS/DASH exploitable n’est détectée, DlStream reconstruit l’URL canonique du lecteur et la délègue à yt-dlp dans a-Shell.</div><div id="embeddedProviderList"></div>';
+    panel.innerHTML = '<h3>Lecteurs embarqués</h3><div class="subtle">Si aucune URL directe/HLS/DASH exploitable n’est détectée, DlStream reconstruit l’URL canonique du lecteur et la délègue à yt-dlp dans a-Shell.<br>À installer une seule fois dans a-Shell : <code>pip install --upgrade yt-dlp</code>.<br>MP4/M4A est préféré ; un éventuel WebM n’est que remuxé si possible, sans réencodage vidéo lourd automatique.</div><div id="embeddedProviderList"></div>';
 
     const mediaSection = [...sheet.querySelectorAll('.section')].find((section) => section.querySelector('h3')?.textContent?.includes('Téléchargement'));
     if (mediaSection) sheet.insertBefore(panel, mediaSection);
