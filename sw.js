@@ -1,4 +1,5 @@
 const CACHE = 'dlstream-static-v42';
+const BUILD = '42';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -124,6 +125,22 @@ async function proxyAssetRequest(request, requestUrl) {
   }
 }
 
+async function serveAlignedApp(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    const source = await response.text();
+    const aligned = source.replace(/const DLSTREAM_BUILD = ['"]\d+['"];?/,
+      `const DLSTREAM_BUILD = '${BUILD}';`);
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.set('Cache-Control', 'no-store');
+    headers.set('Content-Type', 'application/javascript; charset=utf-8');
+    return new Response(aligned, { status: response.status, statusText: response.statusText, headers });
+  } catch {
+    return caches.match('./app.js');
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)));
   self.skipWaiting();
@@ -145,6 +162,11 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname.startsWith(ASSET_PREFIX)) {
     event.respondWith(proxyAssetRequest(event.request, url));
+    return;
+  }
+
+  if (/\/app\.js$/i.test(url.pathname)) {
+    event.respondWith(serveAlignedApp(event.request));
     return;
   }
 
