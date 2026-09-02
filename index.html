@@ -30,30 +30,30 @@
       </details>
     </section>
   </main>
-  <script>window.__DLSTREAM_RELEASE__='41';</script>
-  <script src="./asset-compat.js?v=41"></script>
-  <script src="./media-filter.js?v=41"></script>
-  <script src="./iframe-direct.js?v=41"></script>
-  <script src="./spa-compat.js?v=41"></script>
-  <script src="./ashell-safe.js?v=41"></script>
-  <script src="./platform-manager.js?v=41"></script>
-  <script src="./media-observer-v2.js?v=41"></script>
-  <script src="./embedded-player.js?v=41"></script>
-  <script src="./embed-bridge.js?v=41"></script>
-  <script src="./version-badge.js?v=41"></script>
-  <script src="./compat-status.js?v=41"></script>
-  <script src="./ui-fixes.js?v=41"></script>
+  <script>window.__DLSTREAM_RELEASE__='42';</script>
+  <script src="./asset-compat.js?v=42"></script>
+  <script src="./media-filter.js?v=42"></script>
+  <script src="./iframe-direct.js?v=42"></script>
+  <script src="./spa-compat.js?v=42"></script>
+  <script src="./ashell-safe.js?v=42"></script>
+  <script src="./platform-manager.js?v=42"></script>
+  <script src="./media-observer-v2.js?v=42"></script>
+  <script src="./embedded-player.js?v=42"></script>
+  <script src="./embed-bridge.js?v=42"></script>
+  <script src="./version-badge.js?v=42"></script>
+  <script src="./compat-status.js?v=42"></script>
+  <script src="./ui-fixes.js?v=42"></script>
   <script type="module">
-    async function waitForV41Worker() {
+    async function waitForV42Worker() {
       if (!('serviceWorker' in navigator)) return;
       const message = document.querySelector('#bootMessage');
-      if (message) message.textContent = 'Activation de DlStream v41…';
+      if (message) message.textContent = 'Activation de DlStream v42…';
 
-      const registration = await navigator.serviceWorker.register('./sw.js?v=41');
+      const registration = await navigator.serviceWorker.register('./sw.js?v=42');
       await navigator.serviceWorker.ready;
 
-      const controllerIsV41 = () => String(navigator.serviceWorker.controller?.scriptURL || '').includes('v=41');
-      if (controllerIsV41()) return;
+      const controllerIsV42 = () => String(navigator.serviceWorker.controller?.scriptURL || '').includes('v=42');
+      if (controllerIsV42()) return;
 
       await new Promise((resolve) => {
         let done = false;
@@ -64,7 +64,7 @@
           clearTimeout(timer);
           resolve();
         };
-        const onChange = () => controllerIsV41() && finish();
+        const onChange = () => controllerIsV42() && finish();
         const timer = setTimeout(finish, 2500);
         navigator.serviceWorker.addEventListener('controllerchange', onChange);
         registration.update().catch(() => {});
@@ -72,9 +72,9 @@
     }
 
     try {
-      await waitForV41Worker();
+      await waitForV42Worker();
     } catch (_) {}
-    await import('./app.js?v=41');
+    await import('./app.js?v=42');
   </script>
 </body>
 </html>
