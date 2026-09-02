@@ -126,7 +126,6 @@
     const declared = String(media?.type || media?.mediaType || '').toLowerCase();
     if (['hls', 'dash', 'stream'].includes(declared)) return 'stream';
     // Ne considérer comme fichier direct que les URL portant une vraie extension média.
-    // Un endpoint opaque déclaré video/* peut être un flux, une route authentifiée ou un fichier sans nom.
     return DIRECT_EXT_RE.test(url?.href || '') ? 'direct' : 'stream';
   }
 
@@ -153,6 +152,30 @@
 
     const output = `${base}.mp4`;
     return `cd ~/Documents\nclear\nffmpeg -hide_banner -loglevel error -stats -stats_period 3 -http_persistent 1 -http_multiple 1 -y -i ${quote(url.href)} -c copy ${quote(output)}`;
+  }
+
+  function embeddedUrl(item) {
+    const raw = item?.canonicalUrl || item?.openUrl || item?.embedUrl || '';
+    try {
+      const url = new URL(String(raw));
+      return ['http:', 'https:'].includes(url.protocol) ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function buildEmbeddedCommand(item = window.DlStreamEmbedded?.activeProvider?.()) {
+    const url = embeddedUrl(item);
+    if (!url) throw new Error('Aucun lecteur embarqué exploitable détecté.');
+
+    const title = safeFilename(outputTitle(item)) || safeFilename(item?.provider) || `video-${timestamp()}`;
+    const base = title.replace(/\.[a-z0-9]{2,5}$/i, '');
+    const template = `${base}.%(ext)s`;
+
+    // Préférer un couple vidéo MP4 + audio M4A pour obtenir un fichier MP4 compatible iPhone.
+    // Conserver un fallback générique uniquement si le fournisseur ne propose pas ces formats.
+    const format = 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/bv*+ba/b';
+    return `cd ~/Documents\nclear\nyt-dlp --no-playlist -f ${quote(format)} --merge-output-format mp4 --remux-video mp4 -o ${quote(template)} ${quote(url.href)}`;
   }
 
   function shortcutUrl() {
@@ -185,6 +208,13 @@
 
   function launch(media = window.__DLSTREAM_ACTIVE_MEDIA__) {
     const command = buildCommand(media);
+    copySync(command);
+    location.href = shortcutUrl();
+    return command;
+  }
+
+  function launchEmbedded(item = window.DlStreamEmbedded?.activeProvider?.()) {
+    const command = buildEmbeddedCommand(item);
     copySync(command);
     location.href = shortcutUrl();
     return command;
@@ -223,7 +253,9 @@
 
   window.DlStreamAShell = Object.freeze({
     buildCommand,
+    buildEmbeddedCommand,
     launch,
+    launchEmbedded,
     shortcutUrl,
     titleFromPage,
     rememberedTitle,
