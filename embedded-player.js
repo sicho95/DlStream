@@ -32,11 +32,8 @@
       else if (live >= 0) id = parts[live + 1] || '';
       else id = url.searchParams.get('v') || '';
     }
-    return {
-      provider: 'YouTube',
-      id,
-      openUrl: id ? `https://www.youtube.com/watch?v=${encodeURIComponent(id)}` : url.href,
-    };
+    const canonicalUrl = id ? `https://www.youtube.com/watch?v=${encodeURIComponent(id)}` : url.href;
+    return { provider: 'YouTube', id, canonicalUrl, openUrl: canonicalUrl };
   }
 
   function vimeo(url) {
@@ -45,11 +42,8 @@
     const parts = url.pathname.split('/').filter(Boolean);
     const videoIndex = parts.indexOf('video');
     const id = videoIndex >= 0 ? parts[videoIndex + 1] || '' : parts.find((part) => /^\d+$/.test(part)) || '';
-    return {
-      provider: 'Vimeo',
-      id,
-      openUrl: id ? `https://vimeo.com/${id}` : url.href,
-    };
+    const canonicalUrl = id ? `https://vimeo.com/${id}` : url.href;
+    return { provider: 'Vimeo', id, canonicalUrl, openUrl: canonicalUrl };
   }
 
   function dailymotion(url) {
@@ -62,11 +56,8 @@
       const videoIndex = parts.indexOf('video');
       id = videoIndex >= 0 ? parts[videoIndex + 1] || '' : '';
     }
-    return {
-      provider: 'Dailymotion',
-      id,
-      openUrl: id ? `https://www.dailymotion.com/video/${id}` : url.href,
-    };
+    const canonicalUrl = id ? `https://www.dailymotion.com/video/${id}` : url.href;
+    return { provider: 'Dailymotion', id, canonicalUrl, openUrl: canonicalUrl };
   }
 
   function twitch(url) {
@@ -77,20 +68,22 @@
     const channel = url.searchParams.get('channel') || '';
     const videoPath = parts[0] === 'videos' ? parts[1] || '' : '';
     const videoId = String(videoQuery || videoPath).replace(/^v/i, '');
-    return {
-      provider: 'Twitch',
-      id: videoId || channel,
-      openUrl: videoId ? `https://www.twitch.tv/videos/${encodeURIComponent(videoId)}` : channel ? `https://www.twitch.tv/${encodeURIComponent(channel)}` : url.href,
-    };
+    const id = videoId || channel;
+    const canonicalUrl = videoId
+      ? `https://www.twitch.tv/videos/${encodeURIComponent(videoId)}`
+      : channel ? `https://www.twitch.tv/${encodeURIComponent(channel)}` : url.href;
+    return { provider: 'Twitch', id, canonicalUrl, openUrl: canonicalUrl };
   }
 
   function generic(url, node) {
     const path = `${url.hostname}${url.pathname}`.toLowerCase();
     const hint = `${node?.getAttribute?.('title') || ''} ${node?.getAttribute?.('allow') || ''}`.toLowerCase();
-    if (!/(?:\/embed(?:\/|$)|\/player(?:\/|$)|\/video(?:\/|$)|^player\.)/i.test(path) && !/(?:video|player|lecture|stream|autoplay)/i.test(hint)) return null;
+    if (!/(?:\/embed(?:\/|$)|\/player(?:\/|$)|\/video(?:\/|$)|^player\.)/i.test(path)
+        && !/(?:video|player|lecture|stream|autoplay)/i.test(hint)) return null;
     return {
       provider: 'Lecteur externe',
       id: '',
+      canonicalUrl: url.href,
       openUrl: url.href,
     };
   }
@@ -105,7 +98,7 @@
   }
 
   function keyFor(item) {
-    return `${item.provider}|${item.id || item.openUrl}`;
+    return `${item.provider}|${item.id || item.canonicalUrl || item.openUrl}`;
   }
 
   function publish(item) {
@@ -120,53 +113,28 @@
         - ((a.visible ? 1000 : 0) + providerPriority(a) + Number(a.lastSeen || 0) / 1e13))[0] || null;
   }
 
-  function providerAction(item) {
-    if (!item) return null;
-    if (item.provider === 'YouTube') {
-      return {
-        label: 'Télécharger ma vidéo',
-        url: item.id ? `https://studio.youtube.com/video/${encodeURIComponent(item.id)}/edit` : 'https://studio.youtube.com/',
-        note: 'YouTube Studio web : pour une vidéo mise en ligne sur ton compte, utiliser le menu ⋮ puis Télécharger. Aucun besoin d’installer l’app Studio.',
-      };
-    }
-    if (item.provider === 'Vimeo') {
-      return {
-        label: 'Télécharger ma vidéo',
-        url: item.openUrl,
-        note: 'Vimeo : connecté comme propriétaire, ouvrir la page de la vidéo puis utiliser Télécharger si cette fonction est disponible sur le compte.',
-      };
-    }
-    if (item.provider === 'Dailymotion') {
-      return {
-        label: 'Télécharger ma vidéo',
-        url: 'https://www.dailymotion.com/partner',
-        note: 'Dailymotion Studio : Médias → Vidéos → ⋮ → Télécharger pour une vidéo de ton compte.',
-      };
-    }
-    if (item.provider === 'Twitch') {
-      return {
-        label: 'Télécharger ma vidéo',
-        url: 'https://dashboard.twitch.tv/',
-        note: 'Twitch : Tableau de bord des créateurs → Studio vidéo → ⋮ → Télécharger pour ta propre VOD.',
-      };
-    }
-    return {
-      label: 'Ouvrir le lecteur',
-      url: item.openUrl,
-      note: 'Lecteur externe détecté. Si aucune source HLS/DASH/directe n’est exposée, utiliser la fonction de téléchargement officielle du fournisseur pour ton propre contenu.',
-    };
+  function launch(item = activeProvider()) {
+    if (!item) throw new Error('Aucun lecteur embarqué détecté.');
+    if (!window.DlStreamAShell?.launchEmbedded) throw new Error('Le module yt-dlp/a-Shell n’est pas disponible.');
+    return window.DlStreamAShell.launchEmbedded(item);
   }
 
-  function officialDownload(item = activeProvider()) {
-    const action = providerAction(item);
-    if (!action?.url) return null;
-    window.open(action.url, '_blank', 'noopener');
-    return action;
-  }
-
-  function isProviderUrl(value) {
-    const url = normalize(value);
-    return Boolean(url && identify(url, null));
+  async function copyCommand(item = activeProvider()) {
+    if (!item) throw new Error('Aucun lecteur embarqué détecté.');
+    const command = window.DlStreamAShell?.buildEmbeddedCommand?.(item);
+    if (!command) throw new Error('Impossible de générer la commande yt-dlp.');
+    if (navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(command); return true; } catch (_) {}
+    }
+    const area = document.createElement('textarea');
+    area.value = command;
+    area.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    area.remove();
+    return ok;
   }
 
   function scan() {
@@ -208,18 +176,6 @@
     scanTimer = setTimeout(scan, 120);
   }
 
-  function copy(value) {
-    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(value).catch(() => {});
-    const area = document.createElement('textarea');
-    area.value = value;
-    area.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
-    document.body.appendChild(area);
-    area.select();
-    try { document.execCommand('copy'); } catch (_) {}
-    area.remove();
-    return Promise.resolve();
-  }
-
   function ensurePanel(root) {
     let panel = root.querySelector('#embeddedProviderPanel');
     if (panel) return panel;
@@ -230,12 +186,16 @@
     panel.id = 'embeddedProviderPanel';
     panel.className = 'section';
     panel.hidden = true;
-    panel.innerHTML = '<h3>Lecteurs embarqués</h3><div class="subtle">Une source HLS/DASH/directe reste prioritaire. Sinon DlStream bascule vers le téléchargement officiel de tes propres vidéos chez le fournisseur.</div><div id="embeddedProviderList"></div>';
+    panel.innerHTML = '<h3>Lecteurs embarqués</h3><div class="subtle">Si aucune URL directe/HLS/DASH exploitable n’est détectée, DlStream reconstruit l’URL canonique du lecteur et la délègue à yt-dlp dans a-Shell.</div><div id="embeddedProviderList"></div>';
 
     const mediaSection = [...sheet.querySelectorAll('.section')].find((section) => section.querySelector('h3')?.textContent?.includes('Téléchargement'));
     if (mediaSection) sheet.insertBefore(panel, mediaSection);
     else sheet.appendChild(panel);
     return panel;
+  }
+
+  function buttonStyle(button, primary = false) {
+    button.style.cssText = `min-height:32px;border:1px solid ${primary ? '#fff' : '#44444a'};border-radius:9px;background:${primary ? '#fff' : '#2b2b30'};color:${primary ? '#000' : '#fff'};padding:5px 8px${primary ? ';font-weight:700' : ''}`;
   }
 
   function render() {
@@ -254,7 +214,6 @@
     list.textContent = '';
 
     for (const item of items) {
-      const action = providerAction(item);
       const row = document.createElement('div');
       row.style.cssText = 'margin-top:7px;padding:8px;border-radius:10px;background:#18181b;border:1px solid #34343a';
 
@@ -264,39 +223,41 @@
 
       const host = document.createElement('div');
       host.style.cssText = 'font-size:9px;color:#9999a2;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-      host.textContent = item.id ? `${item.host} · ${item.id}` : item.host;
+      host.textContent = item.id ? `${item.host} · ID ${item.id}` : item.host;
 
       const note = document.createElement('div');
-      note.style.cssText = 'font-size:9px;color:#8f8f98;line-height:1.35;margin-top:5px';
-      note.textContent = action.note;
+      note.style.cssText = 'font-size:9px;color:#8f8f98;line-height:1.35;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      note.textContent = item.canonicalUrl || item.openUrl;
 
       const actions = document.createElement('div');
       actions.style.cssText = 'display:flex;gap:7px;flex-wrap:wrap;margin-top:7px';
 
-      const downloadOwn = document.createElement('button');
-      downloadOwn.type = 'button';
-      downloadOwn.textContent = action.label;
-      downloadOwn.style.cssText = 'min-height:32px;border:1px solid #fff;border-radius:9px;background:#fff;color:#000;padding:5px 8px;font-weight:700';
-      downloadOwn.onclick = () => officialDownload(item);
+      const download = document.createElement('button');
+      download.type = 'button';
+      download.textContent = 'Télécharger avec yt-dlp';
+      buttonStyle(download, true);
+      download.onclick = () => {
+        try { launch(item); } catch (error) { alert(error?.message || String(error)); }
+      };
+
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.textContent = 'Copier commande';
+      buttonStyle(copy);
+      copy.onclick = async () => {
+        const ok = await copyCommand(item).catch(() => false);
+        const previous = copy.textContent;
+        copy.textContent = ok ? 'Commande copiée' : 'Échec copie';
+        setTimeout(() => { copy.textContent = previous; }, 1000);
+      };
 
       const open = document.createElement('button');
       open.type = 'button';
       open.textContent = `Ouvrir dans ${item.provider}`;
-      open.style.cssText = 'min-height:32px;border:1px solid #44444a;border-radius:9px;background:#2b2b30;color:#fff;padding:5px 8px';
+      buttonStyle(open);
       open.onclick = () => window.open(item.openUrl, '_blank', 'noopener');
 
-      const copyButton = document.createElement('button');
-      copyButton.type = 'button';
-      copyButton.textContent = 'Copier URL du lecteur';
-      copyButton.style.cssText = open.style.cssText;
-      copyButton.onclick = async () => {
-        await copy(item.openUrl);
-        const previous = copyButton.textContent;
-        copyButton.textContent = 'URL copiée';
-        setTimeout(() => { copyButton.textContent = previous; }, 1000);
-      };
-
-      actions.append(downloadOwn, open, copyButton);
+      actions.append(download, copy, open);
       row.append(title, host, note, actions);
       list.appendChild(row);
     }
@@ -312,7 +273,7 @@
     const item = activeProvider();
     if (!media && item) {
       download.hidden = false;
-      download.title = `${providerAction(item)?.label || 'Ouvrir'} · ${item.provider}`;
+      download.title = `Télécharger avec a-Shell (yt-dlp · ${item.provider})`;
       download.dataset.embeddedFallback = '1';
     } else {
       delete download.dataset.embeddedFallback;
@@ -327,30 +288,32 @@
     if (!item) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    officialDownload(item);
+    try { launch(item); } catch (error) { alert(error?.message || String(error)); }
   }, true);
 
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'DLSTREAM_EMBEDDED_PROVIDER_BATCH') return;
     for (const item of Array.isArray(event.data.providers) ? event.data.providers : []) {
-      if (item?.provider && item?.openUrl) publish(item);
+      if (item?.provider && (item?.canonicalUrl || item?.openUrl)) publish(item);
     }
     render();
     syncDownloadFallback();
   });
 
-  document.addEventListener('dlstream-active-media', syncDownloadFallback);
-  document.addEventListener('dlstream-media-changed', syncDownloadFallback);
-
   window.DlStreamEmbedded = Object.freeze({
     activeProvider,
-    officialDownload,
-    providerAction,
-    isProviderUrl,
+    identify,
+    launch,
+    copyCommand,
     list: () => [...providers.values()],
   });
 
-  new MutationObserver(schedule).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src','data-src','data-url','data','title','allow'] });
+  new MutationObserver(schedule).observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['src','data-src','data-url','data','title','allow'],
+  });
   window.addEventListener('load', schedule);
   window.addEventListener('dlstream-domains-updated', schedule);
   setInterval(() => {
