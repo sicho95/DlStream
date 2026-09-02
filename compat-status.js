@@ -24,6 +24,8 @@
     const assets = window.__DLSTREAM_ASSET_STATS__ || {};
     const lines = [
       `Assets JS relayés : ${Number(assets.rewritten || 0)}`,
+      `Assets chargés : ${Number(assets.loaded || 0)}`,
+      `Assets en erreur : ${Number(assets.failed || 0)}`,
       `Requêtes app relayées : ${Number(spa.proxied || 0)}`,
       `Faux médias filtrés : ${Number(filter.rejected || 0)}`,
     ];
@@ -31,6 +33,7 @@
       try { lines.push(`Dernier asset : ${new URL(assets.lastAsset).pathname.split('/').pop() || new URL(assets.lastAsset).hostname}`); }
       catch (_) {}
     }
+    if (assets.lastError) lines.push(`Dernier asset en erreur : ${assets.lastError}`);
     if (spa.lastStatus) lines.push(`Dernier statut API : HTTP ${spa.lastStatus}`);
     if (spa.lastProxy) {
       try { lines.push(`Dernier domaine API : ${new URL(spa.lastProxy).hostname}`); }
