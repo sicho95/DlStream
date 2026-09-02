@@ -142,6 +142,23 @@
     if (!config?.rootTrusted) return;
     const found = [];
 
+    // Identifier directement la cible d’une page imbriquée : les iframes approuvées
+    // sont réécrites vers DlStream, mais leur URL d’origine reste disponible dans targetUrl.
+    const targetUrl = normalize(config.targetUrl);
+    const targetItem = targetUrl ? identify(targetUrl, null) : null;
+    if (targetUrl && targetItem) {
+      const value = {
+        ...targetItem,
+        embedUrl: targetUrl.href,
+        host: targetUrl.hostname.toLowerCase(),
+        sourcePage: config.targetUrl || location.href,
+        visible: true,
+      };
+      found.push(value);
+      publish(value);
+      window.DlStreamTrust?.learnHost?.(targetUrl.hostname);
+    }
+
     document.querySelectorAll('iframe[src],iframe[data-src],iframe[data-url],embed[src],object[data]').forEach((node) => {
       const raw = node.getAttribute('src') || node.getAttribute('data-src') || node.getAttribute('data-url') || node.getAttribute('data');
       const url = normalize(raw);
