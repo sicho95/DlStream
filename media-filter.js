@@ -20,6 +20,18 @@
     }
   }
 
+  function appBase() {
+    try { return new URL(window.__DLSTREAM__?.appEntry || './', location.href); }
+    catch { return null; }
+  }
+
+  function isDlStreamInternal(url) {
+    const app = appBase();
+    if (!url || !app || url.origin !== app.origin) return false;
+    const basePath = app.pathname.endsWith('/') ? app.pathname : `${app.pathname}/`;
+    return url.pathname === app.pathname || url.pathname.startsWith(basePath);
+  }
+
   function sourceOf(media) {
     return String(media?.detectedBy || media?.source || '').toLowerCase();
   }
@@ -44,6 +56,7 @@
   function rejectionReason(media) {
     const url = normalize(media?.url || media?.downloadUrl || media?.manifestUrl, media?.sourcePage);
     if (!url) return 'url-invalide';
+    if (isDlStreamInternal(url)) return 'dlstream-interne';
 
     const href = url.href;
     const path = decodeURIComponent(`${url.pathname}${url.search}`).toLowerCase();
