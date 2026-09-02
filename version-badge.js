@@ -2,7 +2,11 @@
   if (window.__DLSTREAM_VERSION_BADGE__) return;
   window.__DLSTREAM_VERSION_BADGE__ = true;
 
-  function currentBuild() {
+  function releaseVersion() {
+    return String(window.__DLSTREAM_RELEASE__ || '').trim();
+  }
+
+  function engineBuild() {
     const value = window.__DLSTREAM__?.build || window.DlStreamConfig?.build || '';
     return String(value || '').trim();
   }
@@ -22,9 +26,13 @@
       title.appendChild(badge);
     }
 
-    const build = currentBuild();
-    badge.textContent = build ? `v${build}` : 'v?';
-    badge.title = build ? `Build DlStream ${build}` : 'Version DlStream inconnue';
+    const release = releaseVersion();
+    const engine = engineBuild();
+    const shown = release || engine;
+    badge.textContent = shown ? `v${shown}` : 'v?';
+    badge.title = release && engine && release !== engine
+      ? `DlStream v${release} · moteur ${engine}`
+      : shown ? `DlStream v${shown}` : 'Version DlStream inconnue';
   }
 
   // Le document de la plateforme remplace le document de démarrage avec document.write.
