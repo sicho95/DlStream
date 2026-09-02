@@ -1,5 +1,5 @@
-const CACHE = 'dlstream-static-v42';
-const BUILD = '42';
+const CACHE = 'dlstream-static-v43';
+const BUILD = '43';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -22,6 +22,7 @@ const APP_SHELL = [
   './spa-compat.js',
   './media-filter.js',
   './asset-compat.js',
+  './virtual-location.js',
   './version-badge.js',
   './compat-status.js',
   './ui-fixes.js',
@@ -75,6 +76,30 @@ function rewriteModuleSpecifiers(source, target) {
   return text;
 }
 
+// Remplacer uniquement les lectures explicites de Location dans les bundles de la plateforme.
+// Le document réel reste sur GitHub Pages, mais le code applicatif voit le pathname/search/href cible.
+function rewriteVirtualLocationReferences(source) {
+  let text = String(source || '');
+  const before = text;
+  const properties = '(?:href|origin|protocol|host|hostname|port|pathname|search|hash|assign|replace|reload)';
+
+  text = text.replace(new RegExp(`\\bwindow\\.location\\.(${properties})\\b`, 'g'),
+    'window.__DLSTREAM_VLOCATION__.$1');
+  text = text.replace(new RegExp(`\\bdocument\\.location\\.(${properties})\\b`, 'g'),
+    'window.__DLSTREAM_VLOCATION__.$1');
+  text = text.replace(new RegExp(`\\bglobalThis\\.location\\.(${properties})\\b`, 'g'),
+    'window.__DLSTREAM_VLOCATION__.$1');
+  text = text.replace(new RegExp(`\\bself\\.location\\.(${properties})\\b`, 'g'),
+    'window.__DLSTREAM_VLOCATION__.$1');
+  text = text.replace(new RegExp(`(^|[^\\w$.])location\\.(${properties})\\b`, 'gm'),
+    '$1window.__DLSTREAM_VLOCATION__.$2');
+
+  if (text !== before) {
+    text += '\n;try{window.__DLSTREAM_ROUTE_STATS__&&(window.__DLSTREAM_ROUTE_STATS__.rewrittenSources=(Number(window.__DLSTREAM_ROUTE_STATS__.rewrittenSources||0)+1))}catch(_){}';
+  }
+  return text;
+}
+
 async function proxyAssetRequest(request, requestUrl) {
   const target = parseVirtualAsset(requestUrl);
   if (!target) return new Response('Invalid DlStream asset target', { status: 400 });
@@ -102,7 +127,8 @@ async function proxyAssetRequest(request, requestUrl) {
     const contentType = headers.get('content-type') || '';
     if (request.destination === 'script' || /(?:javascript|ecmascript)/i.test(contentType)) {
       const source = await upstream.text();
-      const rewritten = rewriteModuleSpecifiers(source, target);
+      const modulesRewritten = rewriteModuleSpecifiers(source, target);
+      const rewritten = rewriteVirtualLocationReferences(modulesRewritten);
       if (!contentType) headers.set('Content-Type', 'application/javascript; charset=utf-8');
       return new Response(rewritten, {
         status: upstream.status,
