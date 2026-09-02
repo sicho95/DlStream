@@ -4,6 +4,8 @@
 
   const nativeFetch = window.fetch.bind(window);
   const nativeXhrOpen = XMLHttpRequest.prototype.open;
+  const AD_HOST_RE = /(?:^|[.-])(?:ads?|adserver|adservice|adexchange|tracking|tracker|analytics|pixel)(?:[.-]|$)|doubleclick|googlesyndication|taboola|outbrain|exoclick/i;
+  const MEDIA_PATH_RE = /(?:^|\/)(?:video|media|stream|playback|manifest|playlist|master|hls|dash)(?:\/|$|[._-])|videoplayback|\.m3u8(?:$|[?#])|\.mpd(?:$|[?#])/i;
   let fetchFallback = null;
   let xhrOpenFallback = null;
 
@@ -47,7 +49,30 @@
   }
 
   function mediaLike(url) {
-    return /\.(?:mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|m2ts|mts|ts|m3u8|mpd|m4s|cmfv|cmfa)(?:$|[?#])/i.test(url?.href || '');
+    return /\.(?:mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|m2ts|mts|ts|m3u8|mpd|m4s|cmfv|cmfa)(?:$|[?#])/i.test(url?.href || '')
+      || MEDIA_PATH_RE.test(`${url?.pathname || ''}${url?.search || ''}`);
+  }
+
+  function hostAllowed(url) {
+    if (!url) return false;
+    try {
+      if (url.origin === targetOrigin()) return true;
+      if (AD_HOST_RE.test(url.hostname)) return false;
+      if (window.DlStreamTrust?.hostAllowed) return Boolean(window.DlStreamTrust.hostAllowed(url.hostname));
+
+      const config = cfg();
+      const host = url.hostname.toLowerCase();
+      const root = String(config?.rootHost || '').toLowerCase();
+      if (host === root || host.endsWith(`.${root}`)) return true;
+      const learned = Array.isArray(config?.learnedDomains) ? config.learnedDomains : [];
+      return learned.some((domain) => host === domain || host.endsWith(`.${domain}`));
+    } catch {
+      return false;
+    }
+  }
+
+  function shouldProxyAppRequest(url) {
+    return Boolean(url && hostAllowed(url) && !mediaLike(url));
   }
 
   function proxyUrl(target) {
@@ -93,13 +118,28 @@
     fetchFallback = window.fetch.bind(window);
 
     const wrapper = async function dlStreamSpaFetch(input, init) {
-      let raw = input instanceof Request ? input.url : input;
-      let original = normalize(raw);
-      let target = mapVirtualOrigin(original);
-      const origin = targetOrigin();
+      const raw = input instanceof Request ? input.url : input;
+      const original = normalize(raw);
+      const target = mapVirtualOrigin(original);
 
-      if (target && origin && target.origin === origin && !mediaLike(target)) {
-        return proxyRequest(input, init, target);
+      if (shouldProxyAppRequest(target)) {
+        try {
+          const response = await proxyRequest(input, init, target);
+          window.__DLSTREAM_SPA_STATS__ = {
+            ...(window.__DLSTREAM_SPA_STATS__ || {}),
+            lastProxy: target.href,
+            lastStatus: response.status,
+            proxied: Number(window.__DLSTREAM_SPA_STATS__?.proxied || 0) + 1,
+          };
+          return response;
+        } catch (error) {
+          window.__DLSTREAM_SPA_STATS__ = {
+            ...(window.__DLSTREAM_SPA_STATS__ || {}),
+            lastError: `${target.href} — ${error?.message || error}`,
+            failed: Number(window.__DLSTREAM_SPA_STATS__?.failed || 0) + 1,
+          };
+          throw error;
+        }
       }
 
       if (target && original && target.href !== original.href) {
@@ -131,10 +171,19 @@
     const wrapper = function dlStreamSpaXhrOpen(method, url, ...rest) {
       const original = normalize(url);
       const target = mapVirtualOrigin(original);
-      const origin = targetOrigin();
 
-      if (target && origin && target.origin === origin && !mediaLike(target)) {
-        try { this.__dlstreamTarget = target; } catch (_) {}
+      if (shouldProxyAppRequest(target)) {
+        try {
+          this.__dlstreamTarget = target;
+          this.addEventListener('loadend', () => {
+            window.__DLSTREAM_SPA_STATS__ = {
+              ...(window.__DLSTREAM_SPA_STATS__ || {}),
+              lastProxy: target.href,
+              lastStatus: this.status,
+              proxied: Number(window.__DLSTREAM_SPA_STATS__?.proxied || 0) + 1,
+            };
+          }, { once: true });
+        } catch (_) {}
         return nativeXhrOpen.call(this, method, proxyUrl(target).href, ...rest);
       }
 
