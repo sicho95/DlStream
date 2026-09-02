@@ -27,6 +27,7 @@
   }
 
   let current = initialTarget();
+  const platformOrigin = current?.origin || '';
 
   function stats() {
     return window.__DLSTREAM_ROUTE_STATS__ ||= {
@@ -80,19 +81,20 @@
   }
 
   function samePlatform(target) {
-    return Boolean(target && current && target.origin === current.origin);
+    return Boolean(target && platformOrigin && target.origin === platformOrigin);
   }
 
   function navigate(value, replace = false) {
     const target = resolve(value);
     if (!target) return;
 
+    const internal = samePlatform(target);
     const state = stats();
     state.navigations += 1;
     state.lastNavigation = target.href;
     syncCurrent(target);
 
-    if (!samePlatform(target)) {
+    if (!internal) {
       return replace ? nativeReplace(target.href) : nativeAssign(target.href);
     }
 
@@ -164,6 +166,12 @@
   function rewriteSource(source) {
     let text = String(source || '');
     const before = text;
+
+    // Préserver les affectations directes en les transformant en écriture de href.
+    text = text.replace(/\bwindow\.location\s*=(?!=)/g, 'window.__DLSTREAM_VLOCATION__.href =');
+    text = text.replace(/\bdocument\.location\s*=(?!=)/g, 'window.__DLSTREAM_VLOCATION__.href =');
+    text = text.replace(/\bglobalThis\.location\s*=(?!=)/g, 'window.__DLSTREAM_VLOCATION__.href =');
+    text = text.replace(/\bself\.location\s*=(?!=)/g, 'window.__DLSTREAM_VLOCATION__.href =');
 
     text = text.replace(/\bwindow\.location\b/g, 'window.__DLSTREAM_VLOCATION__');
     text = text.replace(/\bdocument\.location\b/g, 'window.__DLSTREAM_VLOCATION__');
