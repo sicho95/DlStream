@@ -5,7 +5,7 @@
   const nativeFetch = window.fetch.bind(window);
   const nativeXhrOpen = XMLHttpRequest.prototype.open;
   const AD_HOST_RE = /(?:^|[.-])(?:ads?|adserver|adservice|tracking|tracker|analytics|pixel)(?:[.-]|$)|adexchange|adexchanger|doubleclick|googlesyndication|taboola|outbrain|exoclick/i;
-  const MEDIA_PATH_RE = /(?:^|\/)(?:video|media|stream|playback|manifest|playlist|master|hls|dash)(?:\/|$|[._-])|videoplayback|\.m3u8(?:$|[?#])|\.mpd(?:$|[?#])/i;
+  const MEDIA_FILE_RE = /\.(?:mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|mpe|m2v|m2ts|mts|ts|vob|ogv|ogg|3gp|3g2|wmv|flv|f4v|asf|divx|rm|rmvb|m3u8|mpd|m4s|cmfv|cmfa)(?:$|[?#])/i;
   let fetchFallback = null;
   let xhrOpenFallback = null;
 
@@ -62,9 +62,11 @@
     catch { return url; }
   }
 
-  function mediaLike(url) {
-    return /\.(?:mp4|m4v|mov|webm|mkv|avi|mpg|mpeg|m2ts|mts|ts|m3u8|mpd|m4s|cmfv|cmfa)(?:$|[?#])/i.test(url?.href || '')
-      || MEDIA_PATH_RE.test(`${url?.pathname || ''}${url?.search || ''}`);
+  // Ne considérer comme média direct que les vraies ressources portant une extension média.
+  // Les routes applicatives /api/stream, /video-sources, /player, etc. renvoient souvent du JSON
+  // et doivent rester relayées par le proxy pour éviter les erreurs CORS de la page reconstruite.
+  function mediaFile(url) {
+    return MEDIA_FILE_RE.test(url?.href || '');
   }
 
   function hostAllowed(url) {
@@ -86,7 +88,7 @@
   }
 
   function shouldProxyAppRequest(url) {
-    return Boolean(url && hostAllowed(url) && !mediaLike(url));
+    return Boolean(url && hostAllowed(url) && !mediaFile(url));
   }
 
   function proxyUrl(target) {
@@ -102,6 +104,21 @@
     }
   }
 
+  function recordRequest(target, method, status = 0, error = '') {
+    const state = window.__DLSTREAM_SPA_STATS__ ||= {};
+    const entry = {
+      method: String(method || 'GET').toUpperCase(),
+      url: target?.href || '',
+      status: Number(status || 0),
+      error: String(error || ''),
+      at: Date.now(),
+    };
+    state.history = [...(Array.isArray(state.history) ? state.history : []), entry].slice(-8);
+    if (entry.url) state.lastProxy = entry.url;
+    if (entry.status) state.lastStatus = entry.status;
+    if (entry.error) state.lastError = `${entry.url} — ${entry.error}`;
+  }
+
   async function proxyRequest(input, init, target) {
     const proxied = proxyUrl(target);
     if (!(input instanceof Request)) return nativeFetch(proxied.href, init);
@@ -112,7 +129,7 @@
       headers: new Headers(request.headers),
       redirect: request.redirect,
       signal: request.signal,
-      cache: request.cache,
+      cache: 'no-store',
       credentials: 'omit',
     };
 
@@ -135,23 +152,19 @@
       const raw = input instanceof Request ? input.url : input;
       const original = normalize(raw);
       const target = mapVirtualOrigin(original);
+      const method = String(init?.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
 
       if (shouldProxyAppRequest(target)) {
         try {
           const response = await proxyRequest(input, init, target);
-          window.__DLSTREAM_SPA_STATS__ = {
-            ...(window.__DLSTREAM_SPA_STATS__ || {}),
-            lastProxy: target.href,
-            lastStatus: response.status,
-            proxied: Number(window.__DLSTREAM_SPA_STATS__?.proxied || 0) + 1,
-          };
+          const state = window.__DLSTREAM_SPA_STATS__ ||= {};
+          state.proxied = Number(state.proxied || 0) + 1;
+          recordRequest(target, method, response.status);
           return response;
         } catch (error) {
-          window.__DLSTREAM_SPA_STATS__ = {
-            ...(window.__DLSTREAM_SPA_STATS__ || {}),
-            lastError: `${target.href} — ${error?.message || error}`,
-            failed: Number(window.__DLSTREAM_SPA_STATS__?.failed || 0) + 1,
-          };
+          const state = window.__DLSTREAM_SPA_STATS__ ||= {};
+          state.failed = Number(state.failed || 0) + 1;
+          recordRequest(target, method, 0, error?.message || error);
           throw error;
         }
       }
@@ -185,17 +198,15 @@
     const wrapper = function dlStreamSpaXhrOpen(method, url, ...rest) {
       const original = normalize(url);
       const target = mapVirtualOrigin(original);
+      const requestMethod = String(method || 'GET').toUpperCase();
 
       if (shouldProxyAppRequest(target)) {
         try {
           this.__dlstreamTarget = target;
           this.addEventListener('loadend', () => {
-            window.__DLSTREAM_SPA_STATS__ = {
-              ...(window.__DLSTREAM_SPA_STATS__ || {}),
-              lastProxy: target.href,
-              lastStatus: this.status,
-              proxied: Number(window.__DLSTREAM_SPA_STATS__?.proxied || 0) + 1,
-            };
+            const state = window.__DLSTREAM_SPA_STATS__ ||= {};
+            state.proxied = Number(state.proxied || 0) + 1;
+            recordRequest(target, requestMethod, this.status);
           }, { once: true });
         } catch (_) {}
         return nativeXhrOpen.call(this, method, proxyUrl(target).href, ...rest);
@@ -217,7 +228,7 @@
     installXhrWrapper();
   }
 
-  // browser-runtime.js remplace fetch/XHR après l'injection de la page.
+  // browser-runtime.js remplace fetch/XHR après l’injection de la page.
   // Réinstaller cette couche au-dessus afin de conserver la compatibilité SPA.
   setInterval(install, 100);
 })();
