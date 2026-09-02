@@ -66,6 +66,11 @@
     return sortedEntries()[0]?.[1] || null;
   }
 
+  function embeddedProvider() {
+    try { return window.DlStreamEmbedded?.activeProvider?.() || null; }
+    catch { return null; }
+  }
+
   function publishActive() {
     const media = activeMedia();
     window.__DLSTREAM_ACTIVE_MEDIA__ = media ? { ...media } : null;
@@ -208,6 +213,7 @@
     if (!root) return false;
 
     const media = activeMedia();
+    const embedded = embeddedProvider();
     const download = root.querySelector('#download');
     const state = root.querySelector('#mediaState');
     const actions = ensureActions(root, state);
@@ -215,14 +221,16 @@
     renderList(root, state);
 
     if (download) {
-      download.hidden = !media;
+      download.hidden = !(media || embedded);
       if (media) download.title = kind(media) === 'direct' ? 'Télécharger avec a-Shell (curl)' : 'Télécharger avec a-Shell (ffmpeg)';
+      else if (embedded) download.title = `Télécharger avec a-Shell (yt-dlp · ${embedded.provider || 'lecteur embarqué'})`;
     }
     actions.hidden = !media;
 
     if (state) {
       const entries = sortedEntries();
-      if (!media) state.textContent = 'Aucun média détecté.';
+      if (!media && embedded) state.textContent = `Lecteur embarqué détecté · ${embedded.provider || 'lecteur externe'} · yt-dlp`;
+      else if (!media) state.textContent = 'Aucun média détecté.';
       else {
         const url = mediaUrl(media);
         const type = String(media.type || media.mediaType || 'média').toUpperCase();
@@ -265,6 +273,7 @@
       }
 
       if (!download) return;
+      if (!activeMedia()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       try { smartDownload(activeMedia()); }
