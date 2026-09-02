@@ -4,7 +4,7 @@ const MAX_RECURSION_DEPTH = 4;
 const PAGE_CACHE_NAME = 'dlstream-pages-v1';
 const MAX_PAGE_CACHE_AGE_MS = 5 * 60 * 1000;
 const TRANSIENT_PROXY_STATUS = new Set([500, 502, 503, 504]);
-const DLSTREAM_BUILD = '35';
+const DLSTREAM_BUILD = '39';
 
 const bootMessage = document.querySelector('#bootMessage');
 const bootError = document.querySelector('#bootError');
