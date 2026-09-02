@@ -1,5 +1,5 @@
-const CACHE = 'dlstream-static-v43';
-const BUILD = '43';
+const CACHE = 'dlstream-static-v44';
+const BUILD = '44';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -22,10 +22,13 @@ const APP_SHELL = [
   './spa-compat.js',
   './media-filter.js',
   './asset-compat.js',
+  './astro-compat.js',
   './virtual-location.js',
+  './route-sync.js',
   './inline-location.js',
   './version-badge.js',
   './compat-status.js',
+  './framework-status.js',
   './ui-fixes.js',
   './manifest.webmanifest',
   './icon.svg',
