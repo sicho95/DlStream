@@ -23,6 +23,7 @@ const APP_SHELL = [
   './asset-compat.js',
   './version-badge.js',
   './compat-status.js',
+  './ui-fixes.js',
   './manifest.webmanifest',
   './icon.svg',
 ];
