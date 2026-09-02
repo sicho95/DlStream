@@ -1,4 +1,4 @@
-const CACHE = 'dlstream-static-v41';
+const CACHE = 'dlstream-static-v42';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
