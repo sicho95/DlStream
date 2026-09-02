@@ -23,6 +23,7 @@ const APP_SHELL = [
   './media-filter.js',
   './asset-compat.js',
   './virtual-location.js',
+  './inline-location.js',
   './version-badge.js',
   './compat-status.js',
   './ui-fixes.js',
