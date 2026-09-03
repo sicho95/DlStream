@@ -1,5 +1,5 @@
-const CACHE = 'dlstream-static-v44';
-const BUILD = '44';
+const CACHE = 'dlstream-static-v45';
+const BUILD = '45';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './platform-manager.js',
   './iframe-direct.js',
   './spa-compat.js',
+  './transparent-response.js',
   './media-filter.js',
   './asset-compat.js',
   './astro-compat.js',
