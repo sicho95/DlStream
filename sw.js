@@ -1,5 +1,5 @@
-const CACHE = 'dlstream-static-v48';
-const BUILD = '48';
+const CACHE = 'dlstream-static-v49';
+const BUILD = '49';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './platform-manager.js',
   './iframe-direct.js',
   './spa-compat.js',
+  './search-query-compat.js',
   './transparent-response.js',
   './media-filter.js',
   './asset-compat.js',
@@ -71,32 +72,50 @@ function rewriteModuleSpecifiers(source, target) {
   const rootAssetFile = /\.(?:m?js|css|wasm)(?:$|[?#])/i;
   let rewrites = 0;
 
-  const resolveRoot = (specifier) => {
-    if (!specifier?.startsWith('/') || specifier.startsWith('//')) return specifier;
+  const looksFrontendAsset = (url) => {
+    if (!url) return false;
+    return rootAssetPath.test(url.pathname || '') || rootAssetFile.test(url.href || '');
+  };
+
+  const resolveSpecifier = (specifier, forceModule = false) => {
+    if (!specifier) return specifier;
     try {
-      const resolved = virtualAssetUrl(new URL(specifier, target.origin)).href;
-      if (resolved !== specifier) rewrites += 1;
-      return resolved;
+      let resolved = null;
+      if (specifier.startsWith('/') && !specifier.startsWith('//')) {
+        resolved = new URL(specifier, target.origin);
+      } else if (/^https?:\/\//i.test(specifier)) {
+        resolved = new URL(specifier);
+      } else if (specifier.startsWith('//')) {
+        resolved = new URL(`${target.protocol}${specifier}`);
+      } else {
+        // Les imports relatifs restent relatifs : ils se résolvent naturellement
+        // dans le répertoire virtuel __dlstream_asset__ courant.
+        return specifier;
+      }
+
+      if (!forceModule && !looksFrontendAsset(resolved)) return specifier;
+      const virtual = virtualAssetUrl(resolved).href;
+      if (virtual !== specifier) rewrites += 1;
+      return virtual;
     } catch {
       return specifier;
     }
   };
 
   let text = String(source || '');
-  text = text.replace(/(\bimport\s*\(\s*)(["'])(\/(?!\/)[^"']+)\2(\s*\))/g,
-    (full, before, quote, specifier, after) => `${before}${quote}${resolveRoot(specifier)}${quote}${after}`);
-  text = text.replace(/(\bfrom\s*)(["'])(\/(?!\/)[^"']+)\2/g,
-    (full, before, quote, specifier) => `${before}${quote}${resolveRoot(specifier)}${quote}`);
-  text = text.replace(/(\bimport\s*)(["'])(\/(?!\/)[^"']+)\2/g,
-    (full, before, quote, specifier) => `${before}${quote}${resolveRoot(specifier)}${quote}`);
+  text = text.replace(/(\bimport\s*\(\s*)(["'])([^"']+)\2(\s*\))/g,
+    (full, before, quote, specifier, after) => `${before}${quote}${resolveSpecifier(specifier, true)}${quote}${after}`);
+  text = text.replace(/(\bfrom\s*)(["'])([^"']+)\2/g,
+    (full, before, quote, specifier) => `${before}${quote}${resolveSpecifier(specifier, true)}${quote}`);
+  text = text.replace(/(\bimport\s*)(["'])([^"']+)\2/g,
+    (full, before, quote, specifier) => `${before}${quote}${resolveSpecifier(specifier, true)}${quote}`);
 
   // Les runtimes Vite/Astro conservent souvent les chunks différés dans de simples chaînes.
-  // Les réécrire uniquement lorsqu'elles ressemblent clairement à une ressource front-end,
-  // afin de ne pas transformer les routes applicatives /api/... en faux assets.
-  text = text.replace(/(["'`])(\/(?!\/)[^"'`\r\n]+)\1/g, (full, quote, specifier) => {
-    const path = specifier.split(/[?#]/, 1)[0];
-    if (!rootAssetPath.test(path) && !rootAssetFile.test(specifier)) return full;
-    return `${quote}${resolveRoot(specifier)}${quote}`;
+  // Réécrire aussi les URLs absolues/protocole-relatives lorsqu'elles ressemblent clairement
+  // à une ressource front-end, sans transformer les routes applicatives /api/... en faux assets.
+  text = text.replace(/(["'`])((?:https?:)?\/\/[^"'`\r\n]+|\/(?!\/)[^"'`\r\n]+)\1/g, (full, quote, specifier) => {
+    const resolved = resolveSpecifier(specifier, false);
+    return resolved === specifier ? full : `${quote}${resolved}${quote}`;
   });
 
   return { text, rewrites };
@@ -129,7 +148,7 @@ function rewriteVirtualLocationReferences(source) {
 function executionMarker(target, literalRewrites) {
   const href = JSON.stringify(target.href);
   const count = Number(literalRewrites || 0);
-  return `\n;try{const s=window.__DLSTREAM_ASSET_STATS__||=(window.__DLSTREAM_ASSET_STATS__={});s.executed=Number(s.executed||0)+1;s.literalRewrites=Number(s.literalRewrites||0)+${count};s.lastExecuted=${href}}catch(_){}`;
+  return `\n;try{const s=window.__DLSTREAM_ASSET_STATS__||=(window.__DLSTREAM_ASSET_STATS__={});s.executed=Number(s.executed||0)+1;s.literalRewrites=Number(s.literalRewrites||0)+${count};s.lastExecuted=${href};s.executedList=[...(Array.isArray(s.executedList)?s.executedList:[]),${href}].slice(-40)}catch(_){}`;
 }
 
 async function proxyAssetRequest(request, requestUrl) {
