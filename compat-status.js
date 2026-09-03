@@ -44,6 +44,15 @@
     }
   }
 
+  function shortAsset(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.split('/').pop() || url.hostname;
+    } catch {
+      return String(value || '');
+    }
+  }
+
   function mount() {
     const root = document.querySelector('#dlstream-controls')?.shadowRoot;
     const sheet = root?.querySelector('#sheet');
@@ -68,9 +77,11 @@
     const route = window.__DLSTREAM_ROUTE_STATS__ || {};
     const lines = [
       `Assets JS relayés : ${Number(assets.rewritten || 0)}`,
-      `Assets chargés : ${Number(assets.loaded || 0)}`,
+      `JS réellement exécutés : ${Number(assets.executed || 0)}`,
+      `URL de chunks réécrites : ${Number(assets.literalRewrites || 0)}`,
+      `Assets chargés (DOM) : ${Number(assets.loaded || 0)}`,
       `Assets en erreur : ${Number(assets.failed || 0)}`,
-      `Scripts URL réécrits : ${Number(route.rewrittenSources || 0)}`,
+      `Scripts Location réécrits : ${Number(route.rewrittenSources || 0)}`,
       `Historique virtuel : ${Number(route.historyUpdates || 0)}`,
       `Requêtes app relayées : ${Number(spa.proxied || 0)}`,
       `Requêtes app en erreur : ${Number(spa.failed || 0)}`,
@@ -81,10 +92,8 @@
     if (route.current) lines.push(`Route virtuelle : ${shortRoute(route.current)}`);
     if (route.lastHistory) lines.push(`Dernière route client : ${shortRoute(route.lastHistory)}`);
     if (transparent.lastUrl) lines.push(`Dernière URL réponse : ${shortRoute(transparent.lastUrl)}`);
-    if (assets.lastAsset) {
-      try { lines.push(`Dernier asset : ${new URL(assets.lastAsset).pathname.split('/').pop() || new URL(assets.lastAsset).hostname}`); }
-      catch (_) {}
-    }
+    if (assets.lastExecuted) lines.push(`Dernier JS exécuté : ${shortAsset(assets.lastExecuted)}`);
+    if (assets.lastAsset) lines.push(`Dernier asset relayé : ${shortAsset(assets.lastAsset)}`);
     if (assets.lastError) lines.push(`Dernier asset en erreur : ${assets.lastError}`);
     if (spa.lastStatus) lines.push(`Dernier statut API : HTTP ${spa.lastStatus}`);
     if (spa.lastProxy) {
