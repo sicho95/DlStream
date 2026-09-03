@@ -1,5 +1,5 @@
-const CACHE = 'dlstream-static-v45';
-const BUILD = '45';
+const CACHE = 'dlstream-static-v46';
+const BUILD = '46';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -65,10 +65,19 @@ function virtualAssetUrl(target) {
 }
 
 function rewriteModuleSpecifiers(source, target) {
+  const rootAssetPath = /^\/(?:_astro|assets?|build|static|chunks?|js|scripts|client|_next|_nuxt|dist)\//i;
+  const rootAssetFile = /\.(?:m?js|css|wasm)(?:$|[?#])/i;
+  let rewrites = 0;
+
   const resolveRoot = (specifier) => {
     if (!specifier?.startsWith('/') || specifier.startsWith('//')) return specifier;
-    try { return virtualAssetUrl(new URL(specifier, target.origin)).href; }
-    catch { return specifier; }
+    try {
+      const resolved = virtualAssetUrl(new URL(specifier, target.origin)).href;
+      if (resolved !== specifier) rewrites += 1;
+      return resolved;
+    } catch {
+      return specifier;
+    }
   };
 
   let text = String(source || '');
@@ -78,7 +87,17 @@ function rewriteModuleSpecifiers(source, target) {
     (full, before, quote, specifier) => `${before}${quote}${resolveRoot(specifier)}${quote}`);
   text = text.replace(/(\bimport\s*)(["'])(\/(?!\/)[^"']+)\2/g,
     (full, before, quote, specifier) => `${before}${quote}${resolveRoot(specifier)}${quote}`);
-  return text;
+
+  // Les runtimes Vite/Astro conservent souvent les chunks différés dans de simples chaînes.
+  // Les réécrire uniquement lorsqu'elles ressemblent clairement à une ressource front-end,
+  // afin de ne pas transformer les routes applicatives /api/... en faux assets.
+  text = text.replace(/(["'`])(\/(?!\/)[^"'`\r\n]+)\1/g, (full, quote, specifier) => {
+    const path = specifier.split(/[?#]/, 1)[0];
+    if (!rootAssetPath.test(path) && !rootAssetFile.test(specifier)) return full;
+    return `${quote}${resolveRoot(specifier)}${quote}`;
+  });
+
+  return { text, rewrites };
 }
 
 // Remplacer uniquement les lectures explicites de Location dans les bundles de la plateforme.
@@ -103,6 +122,12 @@ function rewriteVirtualLocationReferences(source) {
     text += '\n;try{window.__DLSTREAM_ROUTE_STATS__&&(window.__DLSTREAM_ROUTE_STATS__.rewrittenSources=(Number(window.__DLSTREAM_ROUTE_STATS__.rewrittenSources||0)+1))}catch(_){}';
   }
   return text;
+}
+
+function executionMarker(target, literalRewrites) {
+  const href = JSON.stringify(target.href);
+  const count = Number(literalRewrites || 0);
+  return `\n;try{const s=window.__DLSTREAM_ASSET_STATS__||=(window.__DLSTREAM_ASSET_STATS__={});s.executed=Number(s.executed||0)+1;s.literalRewrites=Number(s.literalRewrites||0)+${count};s.lastExecuted=${href}}catch(_){}`;
 }
 
 async function proxyAssetRequest(request, requestUrl) {
@@ -132,8 +157,8 @@ async function proxyAssetRequest(request, requestUrl) {
     const contentType = headers.get('content-type') || '';
     if (request.destination === 'script' || /(?:javascript|ecmascript)/i.test(contentType)) {
       const source = await upstream.text();
-      const modulesRewritten = rewriteModuleSpecifiers(source, target);
-      const rewritten = rewriteVirtualLocationReferences(modulesRewritten);
+      const modules = rewriteModuleSpecifiers(source, target);
+      const rewritten = rewriteVirtualLocationReferences(modules.text) + executionMarker(target, modules.rewrites);
       if (!contentType) headers.set('Content-Type', 'application/javascript; charset=utf-8');
       return new Response(rewritten, {
         status: upstream.status,
