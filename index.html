@@ -30,36 +30,38 @@
       </details>
     </section>
   </main>
-  <script>window.__DLSTREAM_RELEASE__='47';</script>
-  <script src="./virtual-location.js?v=47"></script>
-  <script src="./route-sync.js?v=47"></script>
-  <script src="./asset-compat.js?v=47"></script>
-  <script src="./astro-compat.js?v=47"></script>
-  <script src="./inline-location.js?v=47"></script>
-  <script src="./media-filter.js?v=47"></script>
-  <script src="./iframe-direct.js?v=47"></script>
-  <script src="./spa-compat.js?v=47"></script>
-  <script src="./transparent-response.js?v=47"></script>
-  <script src="./ashell-safe.js?v=47"></script>
-  <script src="./platform-manager.js?v=47"></script>
-  <script src="./media-observer-v2.js?v=47"></script>
-  <script src="./embedded-player.js?v=47"></script>
-  <script src="./embed-bridge.js?v=47"></script>
-  <script src="./version-badge.js?v=47"></script>
-  <script src="./compat-status.js?v=47"></script>
-  <script src="./framework-status.js?v=47"></script>
-  <script src="./ui-fixes.js?v=47"></script>
+  <script>window.__DLSTREAM_RELEASE__='48';</script>
+  <script src="./virtual-location.js?v=48"></script>
+  <script src="./route-sync.js?v=48"></script>
+  <script src="./asset-compat.js?v=48"></script>
+  <script src="./script-integrity-compat.js?v=48"></script>
+  <script src="./astro-compat.js?v=48"></script>
+  <script src="./inline-location.js?v=48"></script>
+  <script src="./media-filter.js?v=48"></script>
+  <script src="./iframe-direct.js?v=48"></script>
+  <script src="./spa-compat.js?v=48"></script>
+  <script src="./transparent-response.js?v=48"></script>
+  <script src="./ashell-safe.js?v=48"></script>
+  <script src="./platform-manager.js?v=48"></script>
+  <script src="./media-observer-v2.js?v=48"></script>
+  <script src="./embedded-player.js?v=48"></script>
+  <script src="./embed-bridge.js?v=48"></script>
+  <script src="./version-badge.js?v=48"></script>
+  <script src="./compat-status.js?v=48"></script>
+  <script src="./framework-status.js?v=48"></script>
+  <script src="./script-status.js?v=48"></script>
+  <script src="./ui-fixes.js?v=48"></script>
   <script type="module">
-    async function waitForV47Worker() {
+    async function waitForV48Worker() {
       if (!('serviceWorker' in navigator)) return;
       const message = document.querySelector('#bootMessage');
-      if (message) message.textContent = 'Activation de DlStream v47…';
+      if (message) message.textContent = 'Activation de DlStream v48…';
 
-      const registration = await navigator.serviceWorker.register('./sw.js?v=47');
+      const registration = await navigator.serviceWorker.register('./sw.js?v=48');
       await navigator.serviceWorker.ready;
 
-      const controllerIsV47 = () => String(navigator.serviceWorker.controller?.scriptURL || '').includes('v=47');
-      if (controllerIsV47()) return;
+      const controllerIsV48 = () => String(navigator.serviceWorker.controller?.scriptURL || '').includes('v=48');
+      if (controllerIsV48()) return;
 
       await new Promise((resolve) => {
         let done = false;
@@ -70,7 +72,7 @@
           clearTimeout(timer);
           resolve();
         };
-        const onChange = () => controllerIsV47() && finish();
+        const onChange = () => controllerIsV48() && finish();
         const timer = setTimeout(finish, 2500);
         navigator.serviceWorker.addEventListener('controllerchange', onChange);
         registration.update().catch(() => {});
@@ -78,9 +80,9 @@
     }
 
     try {
-      await waitForV47Worker();
+      await waitForV48Worker();
     } catch (_) {}
-    await import('./app.js?v=47');
+    await import('./app.js?v=48');
   </script>
 </body>
 </html>
