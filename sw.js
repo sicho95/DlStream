@@ -1,5 +1,5 @@
-const CACHE = 'dlstream-static-v46';
-const BUILD = '46';
+const CACHE = 'dlstream-static-v47';
+const BUILD = '47';
 const PROXY_BASE = 'https://proxy.sicho95.workers.dev/';
 const ASSET_PREFIX = new URL('./__dlstream_asset__/', self.location.href).pathname;
 
@@ -185,8 +185,16 @@ async function serveAlignedApp(request) {
   try {
     const response = await fetch(request, { cache: 'no-store' });
     const source = await response.text();
-    const aligned = source.replace(/const DLSTREAM_BUILD = ['"]\d+['"];?/,
+    let aligned = source.replace(/const DLSTREAM_BUILD = ['"]\d+['"];?/,
       `const DLSTREAM_BUILD = '${BUILD}';`);
+
+    // Forcer également le chargement initial de la plateforme à déclarer son intention navigateur.
+    // Le Worker peut ainsi distinguer une page web d'une ancienne requête API VigiMap.
+    aligned = aligned.replace(
+      /function buildProxyUrl\(targetUrl\) \{\s*const u = new URL\(PROXY_BASE\);\s*u\.searchParams\.set\('url', targetUrl\);\s*return u\.href;\s*\}/,
+      `function buildProxyUrl(targetUrl) {\n  const u = new URL(PROXY_BASE);\n  u.searchParams.set('url', targetUrl);\n  u.searchParams.set('mode', 'browser');\n  return u.href;\n}`,
+    );
+
     const headers = new Headers(response.headers);
     headers.delete('content-length');
     headers.set('Cache-Control', 'no-store');
