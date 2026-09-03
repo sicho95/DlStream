@@ -62,6 +62,7 @@
     }
 
     const spa = window.__DLSTREAM_SPA_STATS__ || {};
+    const transparent = window.__DLSTREAM_TRANSPARENT_STATS__ || {};
     const filter = window.__DLSTREAM_FILTER_STATS__ || {};
     const assets = window.__DLSTREAM_ASSET_STATS__ || {};
     const route = window.__DLSTREAM_ROUTE_STATS__ || {};
@@ -73,11 +74,13 @@
       `Historique virtuel : ${Number(route.historyUpdates || 0)}`,
       `Requêtes app relayées : ${Number(spa.proxied || 0)}`,
       `Requêtes app en erreur : ${Number(spa.failed || 0)}`,
+      `URL réponses restaurées : ${Number(transparent.restored || 0)}`,
       `Faux médias filtrés : ${Number(filter.rejected || 0)}`,
       `Erreurs JS : ${Number(runtime.errors || 0) + Number(runtime.rejections || 0)}`,
     ];
     if (route.current) lines.push(`Route virtuelle : ${shortRoute(route.current)}`);
     if (route.lastHistory) lines.push(`Dernière route client : ${shortRoute(route.lastHistory)}`);
+    if (transparent.lastUrl) lines.push(`Dernière URL réponse : ${shortRoute(transparent.lastUrl)}`);
     if (assets.lastAsset) {
       try { lines.push(`Dernier asset : ${new URL(assets.lastAsset).pathname.split('/').pop() || new URL(assets.lastAsset).hostname}`); }
       catch (_) {}
