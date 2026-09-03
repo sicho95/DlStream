@@ -10,27 +10,21 @@
 
   window.addEventListener('error', (event) => {
     runtime.errors += 1;
-    const target = event.target;
-    if (target && target !== window && (target.src || target.href)) {
-      runtime.lastError = `Ressource : ${target.src || target.href}`;
-      return;
-    }
-    runtime.lastError = `${event.message || 'Erreur JS'}${event.filename ? ` — ${event.filename}` : ''}`;
+    runtime.lastError = String(event?.error?.message || event?.message || event?.filename || 'Erreur JavaScript');
   }, true);
 
   window.addEventListener('unhandledrejection', (event) => {
     runtime.rejections += 1;
-    const reason = event.reason;
-    runtime.lastError = `Promise : ${reason?.message || String(reason || 'rejet sans détail')}`;
+    runtime.lastError = String(event?.reason?.message || event?.reason || 'Promise rejetée');
   });
 
-  function shortApi(entry) {
+  function shortApi(item) {
     try {
-      const url = new URL(entry.url);
-      const path = `${url.pathname}${url.search}`;
-      return `${entry.method || 'GET'} ${url.hostname}${path.length > 90 ? `${path.slice(0, 87)}…` : path} → ${entry.status || 'ERR'}`;
+      const url = new URL(item.url);
+      const label = `${item.method || 'GET'} ${url.hostname}${url.pathname}${url.search}`;
+      return `${label} → ${item.status || 'ERR'}`;
     } catch {
-      return `${entry.method || 'GET'} ${entry.url || ''} → ${entry.status || 'ERR'}`;
+      return `${item.method || 'GET'} ${item.url || ''} → ${item.status || 'ERR'}`;
     }
   }
 
@@ -75,6 +69,7 @@
     const filter = window.__DLSTREAM_FILTER_STATS__ || {};
     const assets = window.__DLSTREAM_ASSET_STATS__ || {};
     const route = window.__DLSTREAM_ROUTE_STATS__ || {};
+    const search = window.__DLSTREAM_SEARCH_STATS__ || {};
     const lines = [
       `Assets JS relayés : ${Number(assets.rewritten || 0)}`,
       `JS réellement exécutés : ${Number(assets.executed || 0)}`,
@@ -86,12 +81,14 @@
       `Requêtes app relayées : ${Number(spa.proxied || 0)}`,
       `Requêtes app en erreur : ${Number(spa.failed || 0)}`,
       `URL réponses restaurées : ${Number(transparent.restored || 0)}`,
+      `Recherches complétées : ${Number(search.patched || 0)}`,
       `Faux médias filtrés : ${Number(filter.rejected || 0)}`,
       `Erreurs JS : ${Number(runtime.errors || 0) + Number(runtime.rejections || 0)}`,
     ];
     if (route.current) lines.push(`Route virtuelle : ${shortRoute(route.current)}`);
     if (route.lastHistory) lines.push(`Dernière route client : ${shortRoute(route.lastHistory)}`);
     if (transparent.lastUrl) lines.push(`Dernière URL réponse : ${shortRoute(transparent.lastUrl)}`);
+    if (search.lastValue) lines.push(`Dernière recherche injectée : ${search.lastValue}`);
     if (assets.lastExecuted) lines.push(`Dernier JS exécuté : ${shortAsset(assets.lastExecuted)}`);
     if (assets.lastAsset) lines.push(`Dernier asset relayé : ${shortAsset(assets.lastAsset)}`);
     if (assets.lastError) lines.push(`Dernier asset en erreur : ${assets.lastError}`);
@@ -119,5 +116,5 @@
   }
 
   setInterval(mount, 350);
-  setTimeout(mount, 150);
+  setTimeout(mount, 100);
 })();
